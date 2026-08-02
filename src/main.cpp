@@ -6,106 +6,148 @@
 #include <asio.hpp>
 
 #include "resp.hpp"
+#include "utils/str.hpp"
 
 using asio::ip::tcp;
 
 constexpr int port = 6379;
+constexpr size_t read_buf_size = 8;
+constexpr size_t max_buf_cap = 1024;
 
-// struct ReadBuf {
-//     char* data;
-//     size_t cap = 0;
-//     size_t begin = 0;
-//     size_t end = 0;
-// };
+enum class ParsingState {
+    Init,
+    String
+};
 
-// void ensure_buf_cap(ReadBuf& buf, size_t need) {
-//     std::println("cap: {}, begin: {}, end: {}", buf.cap, buf.begin, buf.end);
+struct ReadBuf {
+    char* data;
+    size_t cap = 0;
+    size_t pos = 0;
+    size_t end = 0;
 
-//     size_t free_bytes = buf.cap - buf.end;
-//     if (free_bytes >= need) return;
+    size_t msg_pos = 0;
 
-//     // compact
-//     // if (buf.begin > 0) {
-//     //     size_t len = buf.end - buf.begin;
-//     //     std::memmove(buf.data, buf.data + buf.begin, len);
-//     // }
+    ParsingState state;
+};
 
-//     free_bytes = buf.cap - buf.end;
-//     if (free_bytes < need) {
-//         size_t next_cap = buf.cap + need;
+void ensure_buf_cap(ReadBuf& buf, size_t need) {
+    size_t free_bytes = buf.cap - buf.end;
+    if (free_bytes >= need) return;
 
-//         char* next_buf = new char[next_cap];
+    // std::println("cap: {}, pos: {}, end: {}", buf.cap, buf.pos, buf.end);
 
-//         std::memcpy(next_buf, buf.data, buf.end);
+    assert(buf.cap <= max_buf_cap);
+
+    // compact
+    if (buf.pos > 0) {
+        size_t len = buf.end - buf.pos;
+        std::memmove(buf.data, buf.data + buf.pos, len);
+
+        buf.pos = 0;
+        buf.end = len;
+    }
+
+    free_bytes = buf.cap - buf.end;
+    if (free_bytes < need) {
+        size_t next_cap = buf.cap + need;
+
+        char* next_buf = new char[next_cap];
+
+        std::memcpy(next_buf, buf.data, buf.end);
         
-//         delete buf.data;
+        delete buf.data;
 
-//         buf.data = next_buf;
-//         buf.cap = next_cap;
+        buf.data = next_buf;
+        buf.cap = next_cap;
+    }
+}
 
-//     }
-// }
+std::optional<size_t> find_crlf(ReadBuf& buf) {
+    for (size_t i = buf.pos + 1; i < buf.end; ++i) {
+        if (buf.data[i-1] == '\r' && buf.data[i] == '\n') {
+            return i - 1;
+        }
+    }
+    return std::nullopt;
+}
 
-// constexpr size_t read_buf_size = 128;
+std::optional<char> consume_until_msg(ReadBuf& buf) {
+    while(buf.pos < buf.end) {
+        char c = buf.data[buf.pos++];
+        if (c == '+') {
+            return '+';
+        }
+    }
+    return std::nullopt;
+}
 
-// asio::awaitable<void> read_loop(tcp::socket socket) {
-//     ReadBuf buf{
-//         .data = new char[128],
-//         .cap = 128
-//     };
+std::string consume_msg(ReadBuf& buf, size_t cmd_end) {
+    size_t cmd_len = cmd_end - buf.pos;
+    char* cmd_begin = buf.data + buf.pos;
+    auto resp_msg = to_lower_case(std::string_view(cmd_begin, cmd_len));
 
-//     try {
-//         while(true) {
-//             // ensure_buf_cap(buf, read_buf_size);
+    buf.state = ParsingState::Init;
 
-//             size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf.data + buf.end, 10), asio::use_awaitable);
-//             buf.end += bytes_read;
+    buf.pos = cmd_end + 2;
 
-//             std::println("Bytes read: {}, end: {}", bytes_read, buf.end);
+    return resp_msg;
+}
 
-//             std::println("S: {}", buf.data);
+std::optional<std::string> process_input(ReadBuf& buf) {
+    while (buf.pos < buf.end) {
+        if (buf.state == ParsingState::Init) {
+            if (auto msg_type = consume_until_msg(buf)) {
+                if (*msg_type == '+') {
+                    buf.state = ParsingState::String;
+                }
+            }
+        }
+        else if (buf.state == ParsingState::String) {
+            auto cmd_end = find_crlf(buf);
 
-//             /*
-//                 size_t curr = 0;
+            if (cmd_end) {
+                return consume_msg(buf, *cmd_end);
+            }
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
 
-//             while (curr < bytes_read) {
-//                 char c = read_buf[curr++];
+asio::awaitable<void> read_loop(tcp::socket socket) {
+    ReadBuf buf{};
 
-//                 if (c == '+') { // string
-//                     cmd_start = curr;
+    size_t i = 0;
+    try {
+        while(true) {
+            ensure_buf_cap(buf, read_buf_size);
 
-//                     while(curr < read_buf_size) {
-//                         char c = read_buf[curr++];
-//                         if (c == '\n') {
+            size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf.data + buf.end, read_buf_size), asio::use_awaitable);
+            buf.end += bytes_read;
 
-//                         }
-//                     }
-//                 }
-//                 else if (c == '$') { // bulk string
-
-//                 }
-//                 else if (c == '*') { // array
-
-//                 }
-//                 else {
-
-//                 }
-//             }
-//             */
-//         }
-//     }
-//     catch (const asio::system_error& e) {
-//         if (e.code() == asio::error::eof) {
-//             std::println("Client disconnected");
-//         }
-//         else {
-//             std::println("Read socket failure: {}", e.code().message());
-//         }
-//     }
-//     catch (const std::exception& e) {
-//         std::println("Read failure: {}", e.what());
-//     }
-// }
+            while(auto res = process_input(buf)) {
+                if (*res == "ping") {
+                    auto msg = resp_simple_string("PONG");
+                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
+                }
+                else {
+                    std::println("Unknown command: {}", *res);
+                }
+            }
+        }
+    }
+    catch (const asio::system_error& e) {
+        if (e.code() == asio::error::eof) {
+            std::println("Client disconnected");
+        }
+        else {
+            std::println("Read socket failure: {}", e.code().message());
+        }
+    }
+    catch (const std::exception& e) {
+        std::println("Read failure: {}", e.what());
+    }
+}
 
 asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
     auto io = acceptor.get_executor();
@@ -113,11 +155,7 @@ asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
     try {
         while(true) {
             auto socket = co_await acceptor.async_accept(io, asio::use_awaitable);
-
-            auto msg = resp_simple_string("PONG");
-            co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
-
-            // asio::co_spawn(io, read_loop(std::move(socket)), asio::detached);
+            asio::co_spawn(io, read_loop(std::move(socket)), asio::detached);
         }
     }
     catch (const asio::system_error& e) {
@@ -132,8 +170,8 @@ asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
 
 int main() {
     // Flush after every std::cout / std::cerr
-    std::cout << std::unitbuf;
-    std::cerr << std::unitbuf;
+    // std::cout << std::unitbuf;
+    // std::cerr << std::unitbuf;
 
     asio::io_context io;
     auto acceptor = tcp::acceptor(io, tcp::endpoint(tcp::v4(), port));
@@ -142,50 +180,14 @@ int main() {
 
     std::println("Server on port: {}", port);
 
-    io.run();
+    try {
+        io.run();
+    }
+    catch (std::exception &e) {
+        std::println("Server failure: {}", e.what());
+        exit(1);
+    }
     
-    // int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    // if (server_fd < 0) {
-    //  std::cerr << "Failed to create server socket\n";
-    //  return 1;
-    // }
-    
-    // // Since the tester restarts your program quite often, setting SO_REUSEADDR
-    // // ensures that we don't run into 'Address already in use' errors
-    // int reuse = 1;
-    // if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-    //   std::cerr << "setsockopt failed\n";
-    //   return 1;
-    // }
-    
-    // struct sockaddr_in server_addr;
-    // server_addr.sin_family = AF_INET;
-    // server_addr.sin_addr.s_addr = INADDR_ANY;
-    // server_addr.sin_port = htons(port);
-    
-    // if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) != 0) {
-    //   std::cerr << "Failed to bind to port 6379\n";
-    //   return 1;
-    // }
-
-    // int connection_backlog = 5;
-    // if (listen(server_fd, connection_backlog) != 0) {
-    //   std::cerr << "listen failed\n";
-    //   return 1;
-    // }
-    
-    // struct sockaddr_in client_addr;
-    // int client_addr_len = sizeof(client_addr);
-    // std::cout << "Waiting for a client to connect...\n";
-
-    // // You can use print statements as follows for debugging, they'll be visible when running tests.
-    // std::cout << "Logs from your program will appear here!\n";
-
-    // // Uncomment the code below to pass the first stage
-    // accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-    // std::cout << "Client connected\n";
-    
-    // close(server_fd);
 
     return 0;
 }
