@@ -4,6 +4,8 @@
 #include <span>
 #include <cstring>
 #include <asio.hpp>
+#include <expected>
+#include <charconv>
 
 #include "resp.hpp"
 #include "utils/str.hpp"
@@ -16,7 +18,10 @@ constexpr size_t max_buf_cap = 1024;
 
 enum class ParsingState {
     Init,
-    String
+    String,
+    BulkStringSize,
+    BulkString,
+    ArraySize
 };
 
 struct ReadBuf {
@@ -25,16 +30,16 @@ struct ReadBuf {
     size_t pos = 0;
     size_t end = 0;
 
-    size_t msg_pos = 0;
+    size_t expected_msg_size = 0;
 
     ParsingState state;
+
+    std::vector<RespArray> frames;
 };
 
 void ensure_buf_cap(ReadBuf& buf, size_t need) {
     size_t free_bytes = buf.cap - buf.end;
     if (free_bytes >= need) return;
-
-    // std::println("cap: {}, pos: {}, end: {}", buf.cap, buf.pos, buf.end);
 
     assert(buf.cap <= max_buf_cap);
 
@@ -71,11 +76,13 @@ std::optional<size_t> find_crlf(ReadBuf& buf) {
     return std::nullopt;
 }
 
-std::optional<char> consume_until_msg(ReadBuf& buf) {
+std::optional<ParsingState> consume_msg_type(ReadBuf& buf) {
     while(buf.pos < buf.end) {
-        char c = buf.data[buf.pos++];
-        if (c == '+') {
-            return '+';
+        switch (buf.data[buf.pos++]) {
+          case '+': return ParsingState::String;
+          case '$': return ParsingState::BulkStringSize;
+          case '*': return ParsingState::ArraySize;
+          default: continue;
         }
     }
     return std::nullopt;
@@ -84,31 +91,104 @@ std::optional<char> consume_until_msg(ReadBuf& buf) {
 std::string consume_msg(ReadBuf& buf, size_t cmd_end) {
     size_t cmd_len = cmd_end - buf.pos;
     char* cmd_begin = buf.data + buf.pos;
-    auto resp_msg = to_lower_case(std::string_view(cmd_begin, cmd_len));
 
-    buf.state = ParsingState::Init;
+    std::string resp_msg(cmd_begin, cmd_len);
 
     buf.pos = cmd_end + 2;
 
     return resp_msg;
 }
 
-std::optional<std::string> process_input(ReadBuf& buf) {
+std::expected<std::optional<size_t>, std::string> consume_number(ReadBuf& buf) {
+    if (auto num_end = find_crlf(buf)) {
+        size_t num;
+
+        auto [ptr, ec] = std::from_chars(buf.data + buf.pos, buf.data + *num_end, num);
+        if (ec != std::errc{}) {
+            return std::unexpected("Invalid number");
+        }
+
+        buf.pos = *num_end + 2;
+        return num;
+    }
+    return std::nullopt;
+}
+
+std::optional<RespMessage> append_to_frames(ReadBuf& buf, RespMessage& msg) {
+    while (true) {
+        if (buf.frames.empty()) {
+            return msg;
+        }
+
+        auto& arr = buf.frames.back();
+        arr.push_back(msg);
+
+        if (arr.size() == arr.capacity()) {
+            msg = arr;
+            buf.frames.pop_back();
+        }
+        else {
+            return std::nullopt;
+        }
+    }
+}
+
+std::optional<RespMessage> process_input(ReadBuf& buf) {
     while (buf.pos < buf.end) {
         if (buf.state == ParsingState::Init) {
-            if (auto msg_type = consume_until_msg(buf)) {
-                if (*msg_type == '+') {
-                    buf.state = ParsingState::String;
-                }
+            if (auto next_state = consume_msg_type(buf)) {
+                buf.state = *next_state;
             }
         }
         else if (buf.state == ParsingState::String) {
-            auto cmd_end = find_crlf(buf);
-
-            if (cmd_end) {
-                return consume_msg(buf, *cmd_end);
+            if (auto cmd_end = find_crlf(buf)) {
+                std::string msg = consume_msg(buf, *cmd_end);
+                buf.state = ParsingState::Init;
+                return RespString{std::move(msg)};
             }
             return std::nullopt;
+        }
+        else if (buf.state == ParsingState::BulkStringSize) {
+            if (auto res = consume_number(buf)) {
+                if (auto str_size = *res) {
+                    buf.expected_msg_size = *str_size;
+                    buf.state = ParsingState::BulkString;
+                }
+                else {
+                    std::println("Failed to parse bulk string size: {}", res.error());
+                    exit(1);
+                }
+            }
+        }
+        else if (buf.state == ParsingState::BulkString) {
+            size_t avail_size = buf.end - buf.pos;
+            if (buf.expected_msg_size <= avail_size) {
+                std::string msg = consume_msg(buf, buf.pos + buf.expected_msg_size);
+                RespMessage respStr = RespString{std::move(msg)};
+
+                buf.state = ParsingState::Init;
+
+                if (auto next_msg = append_to_frames(buf, respStr)) {
+                    return *next_msg;
+                }
+            }
+            else {
+                return std::nullopt;
+            }
+        }
+        else if (buf.state == ParsingState::ArraySize) {
+            if (auto res = consume_number(buf)) {
+                if (auto arr_size = *res) {
+                    RespArray arr;
+                    arr.reserve(*arr_size);
+                    buf.frames.push_back(std::move(arr));
+                    buf.state = ParsingState::Init;
+                }
+            }
+            else {
+                std::println("Failed to parse array size: {}", res.error());
+                exit(1);
+            }
         }
     }
     return std::nullopt;
@@ -125,13 +205,26 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
             size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf.data + buf.end, read_buf_size), asio::use_awaitable);
             buf.end += bytes_read;
 
-            while(auto res = process_input(buf)) {
-                if (*res == "ping") {
-                    auto msg = resp_simple_string("PONG");
-                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
+            while(auto resp_msg = process_input(buf)) {
+                if (auto* resp_str = std::get_if<RespString>(&(*resp_msg))) {
+                    std::println("RESP STR: {}", *resp_str);
+                    assert(false && "Unexpected resp string");
                 }
-                else {
-                    std::println("Unknown command: {}", *res);
+                else if (auto* resp_arr = std::get_if<RespArray>(&(*resp_msg))) {
+                    if (auto* resp_str = std::get_if<RespString>(&resp_arr->front())) {
+                        std::string cmd = to_lower_case(*resp_str);
+                        if (cmd == "ping") {
+                            auto msg = resp_simple_string("PONG");
+                            co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
+                        }
+                        else {
+                            std::println("Unknown command: {}", cmd);
+                            exit(1);
+                        }
+                    }
+                    else {
+                        assert(false && "Unexpected resp msg type");
+                    }
                 }
             }
         }
