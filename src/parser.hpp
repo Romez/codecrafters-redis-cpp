@@ -7,6 +7,7 @@
 #include <expected>
 #include <print>
 #include <charconv>
+#include <memory>
 
 #include "resp.hpp"
 
@@ -21,7 +22,9 @@ enum class ParsingState {
 };
 
 struct ReadBuf {
-    char* data;
+    // char* data;
+    std::unique_ptr<char[]> data;
+
     size_t cap = 0;
     size_t pos = 0;
     size_t end = 0;

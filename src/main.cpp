@@ -13,10 +13,9 @@
 using asio::ip::tcp;
 
 constexpr int port = 6379;
-constexpr size_t read_buf_size = 8;
+constexpr size_t read_buf_size = 128;
 
 asio::awaitable<void> read_loop(tcp::socket socket) {
-    // TODO: free buf mem when client disconnected
     ReadBuf buf{};
 
     size_t i = 0;
@@ -24,16 +23,12 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
         while(true) {
             ensure_buf_cap(buf, read_buf_size);
 
-            size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf.data + buf.end, read_buf_size), asio::use_awaitable);
+            char* buf_begin = buf.data.get() + buf.end;
+            size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf_begin, read_buf_size), asio::use_awaitable);
             buf.end += bytes_read;
 
             while(auto resp_msg = process_input(buf)) {
-                if (auto* resp_str = std::get_if<RespString>(&(*resp_msg))) {
-                    // TODO: close client
-                    std::println("RESP STR: {}", *resp_str);
-                    assert(false && "Unexpected resp string");
-                }
-                else if (auto* resp_arr = std::get_if<RespArray>(&(*resp_msg))) {
+                if (auto* resp_arr = std::get_if<RespArray>(&(*resp_msg))) {
                     // TODO: validate arr size > 0
                     if (auto* resp_str = std::get_if<RespString>(&resp_arr->front())) {
                         std::string cmd = to_lower_case(*resp_str);
@@ -42,14 +37,18 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
                             co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
                         }
                         else {
-                            // TODO: close client
                             std::println("Unknown command: |{}|", cmd);
-                            exit(1);
+                            co_return;
                         }
                     }
                     else {
-                        assert(false && "Unexpected resp msg type");
+                        std::println("Unexpected resp msg type");
+                        co_return;
                     }
+                }
+                else {
+                    std::println("Unexpected client message format. Array expected.");
+                    co_return;
                 }
             }
         }
@@ -65,6 +64,7 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
     catch (const std::exception& e) {
         std::println("Read failure: {}", e.what());
     }
+    co_return;
 }
 
 asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
@@ -87,10 +87,6 @@ asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
 }
 
 int main() {
-    // Flush after every std::cout / std::cerr
-    // std::cout << std::unitbuf;
-    // std::cerr << std::unitbuf;
-
     asio::io_context io;
     auto acceptor = tcp::acceptor(io, tcp::endpoint(tcp::v4(), port));
 
@@ -105,7 +101,6 @@ int main() {
         std::println("Server failure: {}", e.what());
         exit(1);
     }
-    
 
     return 0;
 }

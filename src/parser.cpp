@@ -6,13 +6,11 @@ void ensure_buf_cap(ReadBuf& buf, size_t need) {
     size_t free_bytes = buf.cap - buf.end;
     if (free_bytes >= need) return;
 
-    // TODO: think how to handle that
-    assert(buf.cap <= max_buf_cap);
-
     // compact
     if (buf.pos > 0) {
         size_t len = buf.end - buf.pos;
-        std::memmove(buf.data, buf.data + buf.pos, len);
+
+        std::memmove(buf.data.get(), buf.data.get() + buf.pos, len);
 
         buf.pos = 0;
         buf.end = len;
@@ -20,15 +18,16 @@ void ensure_buf_cap(ReadBuf& buf, size_t need) {
 
     free_bytes = buf.cap - buf.end;
     if (free_bytes < need) {
+        // TODO: think how to handle that
+        assert(buf.cap <= max_buf_cap);
+
         size_t next_cap = buf.cap + need;
 
-        char* next_buf = new char[next_cap];
+        auto next_buf = std::make_unique<char[]>(next_cap);
 
-        std::memcpy(next_buf, buf.data, buf.end);
-        
-        delete[] buf.data;
+        std::copy(buf.data.get(), buf.data.get() + buf.end, next_buf.get());
 
-        buf.data = next_buf;
+        buf.data = std::move(next_buf);
         buf.cap = next_cap;
     }
 }
@@ -56,7 +55,7 @@ std::optional<ParsingState> consume_msg_type(ReadBuf& buf) {
 
 std::string consume_msg(ReadBuf& buf, size_t cmd_end) {
     size_t cmd_len = cmd_end - buf.pos;
-    char* cmd_begin = buf.data + buf.pos;
+    char* cmd_begin = buf.data.get() + buf.pos;
 
     std::string resp_msg(cmd_begin, cmd_len);
 
@@ -70,8 +69,8 @@ std::expected<std::optional<size_t>, std::string> consume_number(ReadBuf& buf) {
     if (auto num_end = find_crlf(buf)) {
         size_t num;
 
-        auto begin = buf.data + buf.pos;
-        auto end = buf.data + *num_end;
+        auto begin = buf.data.get() + buf.pos;
+        auto end = buf.data.get() + *num_end;
 
         auto [ptr, ec] = std::from_chars(begin, end, num);
         if (ec != std::errc{} || ptr != end) {
