@@ -21,7 +21,7 @@ enum class ParsingState {
     ArraySize
 };
 
-struct ReadBuf {
+struct Parser {
     // char* data;
     std::unique_ptr<char[]> data;
 
@@ -36,5 +36,5 @@ struct ReadBuf {
     std::vector<RespArray> frames;
 };
 
-void ensure_buf_cap(ReadBuf& buf, size_t need);
-std::optional<RespMessage> process_input(ReadBuf& buf);
+void ensure_buf_cap(Parser& buf, size_t need);
+std::optional<RespMessage> process_input(Parser& buf);

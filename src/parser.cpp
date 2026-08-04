@@ -1,6 +1,6 @@
 #include "parser.hpp"
 
-void ensure_buf_cap(ReadBuf& buf, size_t need) {
+void ensure_buf_cap(Parser& buf, size_t need) {
     assert(buf.pos <= buf.end);
 
     size_t free_bytes = buf.cap - buf.end;
@@ -32,7 +32,7 @@ void ensure_buf_cap(ReadBuf& buf, size_t need) {
     }
 }
 
-std::optional<size_t> find_crlf(ReadBuf& buf) {
+std::optional<size_t> find_crlf(Parser& buf) {
     for (size_t i = buf.pos + 1; i < buf.end; ++i) {
         if (buf.data[i-1] == '\r' && buf.data[i] == '\n') {
             return i - 1;
@@ -41,7 +41,7 @@ std::optional<size_t> find_crlf(ReadBuf& buf) {
     return std::nullopt;
 }
 
-std::optional<ParsingState> consume_msg_type(ReadBuf& buf) {
+std::optional<ParsingState> consume_msg_type(Parser& buf) {
     while(buf.pos < buf.end) {
         switch (buf.data[buf.pos++]) {
           case '+': return ParsingState::String;
@@ -53,7 +53,7 @@ std::optional<ParsingState> consume_msg_type(ReadBuf& buf) {
     return std::nullopt;
 }
 
-std::string consume_msg(ReadBuf& buf, size_t cmd_end) {
+std::string consume_msg(Parser& buf, size_t cmd_end) {
     size_t cmd_len = cmd_end - buf.pos;
     char* cmd_begin = buf.data.get() + buf.pos;
 
@@ -65,7 +65,7 @@ std::string consume_msg(ReadBuf& buf, size_t cmd_end) {
 }
 
 // TODO: simplify return
-std::expected<std::optional<size_t>, std::string> consume_number(ReadBuf& buf) {
+std::expected<std::optional<size_t>, std::string> consume_number(Parser& buf) {
     if (auto num_end = find_crlf(buf)) {
         size_t num;
 
@@ -83,7 +83,7 @@ std::expected<std::optional<size_t>, std::string> consume_number(ReadBuf& buf) {
     return std::nullopt;
 }
 
-std::optional<RespMessage> append_to_frames(ReadBuf& buf, RespMessage& msg) {
+std::optional<RespMessage> append_to_frames(Parser& buf, RespMessage& msg) {
     while (true) {
         if (buf.frames.empty()) {
             return msg;
@@ -102,26 +102,26 @@ std::optional<RespMessage> append_to_frames(ReadBuf& buf, RespMessage& msg) {
     }
 }
 
-std::optional<RespMessage> process_input(ReadBuf& buf) {
-    while (buf.pos < buf.end) {
-        if (buf.state == ParsingState::Init) {
-            if (auto next_state = consume_msg_type(buf)) {
-                buf.state = *next_state;
+std::optional<RespMessage> process_input(Parser& parser) {
+    while (parser.pos < parser.end) {
+        if (parser.state == ParsingState::Init) {
+            if (auto next_state = consume_msg_type(parser)) {
+                parser.state = *next_state;
             }
         }
-        else if (buf.state == ParsingState::String) {
-            if (auto cmd_end = find_crlf(buf)) {
-                std::string msg = consume_msg(buf, *cmd_end);
-                buf.state = ParsingState::Init;
+        else if (parser.state == ParsingState::String) {
+            if (auto cmd_end = find_crlf(parser)) {
+                std::string msg = consume_msg(parser, *cmd_end);
+                parser.state = ParsingState::Init;
                 return RespString{std::move(msg)};
             }
             return std::nullopt;
         }
-        else if (buf.state == ParsingState::BulkStringSize) {
-            if (auto res = consume_number(buf)) {
+        else if (parser.state == ParsingState::BulkStringSize) {
+            if (auto res = consume_number(parser)) {
                 if (auto str_size = *res) {
-                    buf.expected_str_len = *str_size;
-                    buf.state = ParsingState::BulkString;
+                    parser.expected_str_len = *str_size;
+                    parser.state = ParsingState::BulkString;
                 }
                 else {
                     // TODO: return error and close this client
@@ -130,15 +130,15 @@ std::optional<RespMessage> process_input(ReadBuf& buf) {
                 }
             }
         }
-        else if (buf.state == ParsingState::BulkString) {
-            size_t avail_size = buf.end - buf.pos;
-            if (avail_size >= buf.expected_str_len + 2) {
-                std::string msg = consume_msg(buf, buf.pos + buf.expected_str_len);
+        else if (parser.state == ParsingState::BulkString) {
+            size_t avail_size = parser.end - parser.pos;
+            if (avail_size >= parser.expected_str_len + 2) {
+                std::string msg = consume_msg(parser, parser.pos + parser.expected_str_len);
                 RespMessage respStr = RespString{std::move(msg)};
 
-                buf.state = ParsingState::Init;
+                parser.state = ParsingState::Init;
 
-                if (auto next_msg = append_to_frames(buf, respStr)) {
+                if (auto next_msg = append_to_frames(parser, respStr)) {
                     return *next_msg;
                 }
             }
@@ -146,14 +146,14 @@ std::optional<RespMessage> process_input(ReadBuf& buf) {
                 return std::nullopt;
             }
         }
-        else if (buf.state == ParsingState::ArraySize) {
+        else if (parser.state == ParsingState::ArraySize) {
             // TODO: test on empty array
-            if (auto res = consume_number(buf)) {
+            if (auto res = consume_number(parser)) {
                 if (auto arr_size = *res) {
                     RespArray arr;
                     arr.reserve(*arr_size);
-                    buf.frames.push_back(std::move(arr));
-                    buf.state = ParsingState::Init;
+                    parser.frames.push_back(std::move(arr));
+                    parser.state = ParsingState::Init;
                 }
             }
             else {

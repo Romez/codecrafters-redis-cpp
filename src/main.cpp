@@ -16,7 +16,7 @@ constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
 asio::awaitable<void> read_loop(tcp::socket socket) {
-    ReadBuf buf{};
+    Parser buf{};
 
     size_t i = 0;
     try {
