@@ -64,23 +64,19 @@ std::string consume_msg(Parser& buf, size_t cmd_end) {
     return resp_msg;
 }
 
-// TODO: simplify return
-std::expected<std::optional<size_t>, std::string> consume_number(Parser& buf) {
-    if (auto num_end = find_crlf(buf)) {
-        size_t num;
+std::expected<size_t, std::string> consume_number(Parser& buf, size_t num_end) {
+    size_t num;
 
-        auto begin = buf.data.get() + buf.pos;
-        auto end = buf.data.get() + *num_end;
+    auto begin = buf.data.get() + buf.pos;
+    auto end = buf.data.get() + num_end;
 
-        auto [ptr, ec] = std::from_chars(begin, end, num);
-        if (ec != std::errc{} || ptr != end) {
-            return std::unexpected("Invalid number");
-        }
-
-        buf.pos = *num_end + 2;
-        return num;
+    auto [ptr, ec] = std::from_chars(begin, end, num);
+    if (ec != std::errc{} || ptr != end) {
+        return std::unexpected("Invalid number");
     }
-    return std::nullopt;
+
+    buf.pos = num_end + 2;
+    return num;
 }
 
 std::optional<RespMessage> append_to_frames(Parser& buf, RespMessage& msg) {
@@ -118,12 +114,11 @@ std::optional<RespMessage> process_input(Parser& parser) {
             return std::nullopt;
         }
         else if (parser.state == ParsingState::BulkStringSize) {
-            if (auto res = consume_number(parser)) {
-                if (auto str_size = *res) {
-                    parser.expected_str_len = *str_size;
+            if (auto num_end = find_crlf(parser)) {
+                if (auto res = consume_number(parser, *num_end)) {
+                    parser.expected_str_len = *res;
                     parser.state = ParsingState::BulkString;
-                }
-                else {
+                } else {
                     // TODO: return error and close this client
                     std::println("Failed to parse bulk string size: {}", res.error());
                     exit(1);
@@ -147,18 +142,17 @@ std::optional<RespMessage> process_input(Parser& parser) {
             }
         }
         else if (parser.state == ParsingState::ArraySize) {
-            // TODO: test on empty array
-            if (auto res = consume_number(parser)) {
-                if (auto arr_size = *res) {
+            if (auto num_end = find_crlf(parser)) {
+                if (auto res = consume_number(parser, *num_end)) {
                     RespArray arr;
-                    arr.reserve(*arr_size);
+                    arr.reserve(*res);
                     parser.frames.push_back(std::move(arr));
                     parser.state = ParsingState::Init;
+                } else {
+                    // TODO: return error and close this client
+                    std::println("Failed to parse array size: {}", res.error());
+                    exit(1);
                 }
-            }
-            else {
-                std::println("Failed to parse array size: {}", res.error());
-                exit(1);
             }
         }
     }
