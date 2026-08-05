@@ -5,6 +5,9 @@
 #include <vector>
 #include <string>
 #include <string_view>
+#include <expected>
+
+#include "utils/str.hpp"
 
 using RespString = std::string;
 
@@ -19,4 +22,18 @@ struct RespArray : std::vector<RespMessage> {
     using std::vector<RespMessage>::vector;
 };
 
+struct PingCommand {};
+struct InvalidCommand {
+    std::string msg;
+};
+
+using Command = std::variant<
+    PingCommand,
+    InvalidCommand
+>;
+
+Command build_command(RespMessage& msg);
+
 std::string resp_simple_string(std::string_view msg);
+
+std::string resp_simple_error(std::string_view  msg);

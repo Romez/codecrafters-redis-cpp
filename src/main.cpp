@@ -8,7 +8,6 @@
 
 #include "resp.hpp"
 #include "parser.hpp"
-#include "utils/str.hpp"
 
 using asio::ip::tcp;
 
@@ -28,27 +27,14 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
             buf.end += bytes_read;
 
             while(auto resp_msg = process_input(buf)) {
-                if (auto* resp_arr = std::get_if<RespArray>(&(*resp_msg))) {
-                    // TODO: validate arr size > 0
-                    if (auto* resp_str = std::get_if<RespString>(&resp_arr->front())) {
-                        std::string cmd = to_lower_case(*resp_str);
-                        if (cmd == "ping") {
-                            auto msg = resp_simple_string("PONG");
-                            co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
-                        }
-                        else {
-                            std::println("Unknown command: |{}|", cmd);
-                            co_return;
-                        }
-                    }
-                    else {
-                        std::println("Unexpected resp msg type");
-                        co_return;
-                    }
+                auto cmd = build_command(*resp_msg);
+                if (std::holds_alternative<PingCommand>(cmd)) {
+                    auto msg = resp_simple_string("PONG");
+                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
                 }
-                else {
-                    std::println("Unexpected client message format. Array expected.");
-                    co_return;
+                else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
+                    auto msg = resp_simple_error(err->msg);
+                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
                 }
             }
         }
