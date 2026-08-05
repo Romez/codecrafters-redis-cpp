@@ -1,6 +1,14 @@
 #include "resp.hpp"
 
-Command build_command(RespMessage& resp_msg) {
+std::string resp_simple_string(std::string_view msg) {
+    return std::format("+{}\r\n", msg);
+}
+
+std::string resp_simple_error(std::string_view  msg) {
+    return std::format("-ERR {}\r\n", msg);
+}
+
+Command build_cmd(RespMessage& resp_msg) {
     if (auto* resp_arr = std::get_if<RespArray>(&resp_msg)) {
         // TODO: validate arr size > 0
         if (auto* resp_str = std::get_if<RespString>(&resp_arr->front())) {
@@ -19,12 +27,4 @@ Command build_command(RespMessage& resp_msg) {
     else {
         return InvalidCommand {std::format("Unexpected client message format. Array expected.")};
     }
-}
-
-std::string resp_simple_string(std::string_view msg) {
-    return std::format("+{}\r\n", msg);
-}
-
-std::string resp_simple_error(std::string_view  msg) {
-    return std::format("-ERR {}\r\n", msg);
 }

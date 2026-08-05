@@ -32,7 +32,7 @@ using Command = std::variant<
     InvalidCommand
 >;
 
-Command build_command(RespMessage& msg);
+Command build_cmd(RespMessage& msg);
 
 std::string resp_simple_string(std::string_view msg);
 

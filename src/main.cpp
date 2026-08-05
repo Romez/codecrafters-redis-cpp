@@ -14,6 +14,16 @@ using asio::ip::tcp;
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
+std::string handle_cmd(Command& cmd) {
+    if (std::holds_alternative<PingCommand>(cmd)) {
+        return resp_simple_string("PONG");
+    }
+    else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
+        return resp_simple_error(err->msg);
+    }
+    std::unreachable();
+}
+
 asio::awaitable<void> read_loop(tcp::socket socket) {
     Parser buf{};
 
@@ -27,15 +37,9 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
             buf.end += bytes_read;
 
             while(auto resp_msg = process_input(buf)) {
-                auto cmd = build_command(*resp_msg);
-                if (std::holds_alternative<PingCommand>(cmd)) {
-                    auto msg = resp_simple_string("PONG");
-                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
-                }
-                else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
-                    auto msg = resp_simple_error(err->msg);
-                    co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
-                }
+                auto cmd = build_cmd(*resp_msg);
+                auto msg = handle_cmd(cmd);
+                co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
             }
         }
     }
