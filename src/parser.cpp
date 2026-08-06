@@ -101,6 +101,44 @@ std::optional<RespMessage> append_to_frames(Parser& buf, RespMessage& msg) {
     }
 }
 
+Command resp_msg_to_cmd(RespMessage& resp_msg) {
+    if (auto* resp_arr = std::get_if<RespArray>(&resp_msg)) {
+        if (resp_arr->size() == 0) {
+            return InvalidCommand{"Invalid command"};
+        }
+
+        if (auto* cmd_str = std::get_if<RespString>(&resp_arr->front())) {
+            std::string cmd = to_lower_case(*cmd_str);
+            if (cmd == "ping") {
+                return PingCommand {};
+            }
+            else if (cmd == "echo") {
+                auto args = std::span(*resp_arr).subspan(1);
+
+                if (auto* msg = std::get_if<RespString>(&args.front())) {
+                    return EchoCommand{*msg};
+                }
+            }
+            else if (cmd == "get") {
+                auto args = std::span(*resp_arr).subspan(1);
+
+                if (args.size() != 1) {
+                    return InvalidCommand{"wrong number of arguments for 'get' command"};
+                }
+                assert(false && "TODO: GET cmd");
+            }
+            else if (cmd == "set") {
+                assert(false && "TODO: SET cmd");
+            }
+            else {
+                return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
+            }
+        }
+    }
+
+    return InvalidCommand {"Invalid resp command"};
+}
+
 std::optional<Command> process_input(Parser& parser) {
     while (parser.pos < parser.end) {
         if (parser.state == ParsingState::Init) {
@@ -115,7 +153,7 @@ std::optional<Command> process_input(Parser& parser) {
 
                 RespMessage respStr = RespString{std::move(msg)};
                 if (auto next_msg = append_to_frames(parser, respStr)) {
-                    return build_cmd(*next_msg);
+                    return resp_msg_to_cmd(*next_msg);
                 }
             }
             return std::nullopt;
@@ -139,7 +177,7 @@ std::optional<Command> process_input(Parser& parser) {
                 parser.state = ParsingState::Init;
 
                 if (auto next_msg = append_to_frames(parser, respStr)) {
-                    return build_cmd(*next_msg);
+                    return resp_msg_to_cmd(*next_msg);
                 }
             }
             else {

@@ -29,6 +29,16 @@ struct EchoCommand {
     std::string msg;
 };
 
+struct SetCommand {
+    std::vector<std::pair<std::string, std::string>> args;
+    // int ex = 0;
+    // int px = 0;
+};
+
+struct GetCommand {
+    std::string key;
+};
+
 struct InvalidCommand {
     std::string msg;
 };
@@ -38,8 +48,6 @@ using Command = std::variant<
     EchoCommand,
     InvalidCommand
 >;
-
-Command build_cmd(RespMessage& msg);
 
 std::string resp_simple_string(std::string_view msg);
 
