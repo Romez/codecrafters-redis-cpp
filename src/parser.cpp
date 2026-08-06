@@ -1,10 +1,10 @@
 #include "parser.hpp"
 
-void ensure_buf_cap(Parser& buf, size_t need) {
+std::expected<void, std::string> ensure_buf_cap(Parser& buf, size_t need) {
     assert(buf.pos <= buf.end);
 
     size_t free_bytes = buf.cap - buf.end;
-    if (free_bytes >= need) return;
+    if (free_bytes >= need) return {};
 
     // compact
     if (buf.pos > 0) {
@@ -19,7 +19,9 @@ void ensure_buf_cap(Parser& buf, size_t need) {
     free_bytes = buf.cap - buf.end;
     if (free_bytes < need) {
         // TODO: think how to handle that
-        assert(buf.cap <= max_buf_cap);
+        if (buf.cap >= max_buf_cap) {
+            return std::unexpected("Exceeded client buffer size");
+        }
 
         size_t next_cap = buf.cap + need;
 
@@ -30,6 +32,7 @@ void ensure_buf_cap(Parser& buf, size_t need) {
         buf.data = std::move(next_buf);
         buf.cap = next_cap;
     }
+    return {};
 }
 
 std::optional<size_t> find_crlf(Parser& buf) {

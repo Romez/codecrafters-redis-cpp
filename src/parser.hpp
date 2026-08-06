@@ -36,5 +36,5 @@ struct Parser {
     std::vector<RespArray> frames;
 };
 
-void ensure_buf_cap(Parser& buf, size_t need);
+std::expected<void, std::string> ensure_buf_cap(Parser& buf, size_t need);
 std::optional<Command> process_input(Parser& buf);

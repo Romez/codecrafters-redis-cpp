@@ -30,7 +30,11 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
     size_t i = 0;
     try {
         while(true) {
-            ensure_buf_cap(buf, read_buf_size);
+            if (auto err = ensure_buf_cap(buf, read_buf_size); !err) {
+                auto msg = resp_simple_error(err.error());
+                co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
+                break;
+            }
 
             char* buf_begin = buf.data.get() + buf.end;
             size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf_begin, read_buf_size), asio::use_awaitable);
