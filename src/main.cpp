@@ -18,6 +18,9 @@ std::string handle_cmd(Command& cmd) {
     if (std::holds_alternative<PingCommand>(cmd)) {
         return resp_simple_string("PONG");
     }
+    if (auto* echo = std::get_if<EchoCommand>(&cmd)) {
+        return resp_bulk_string(echo->msg);
+    }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
     }
