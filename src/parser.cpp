@@ -98,7 +98,7 @@ std::optional<RespMessage> append_to_frames(Parser& buf, RespMessage& msg) {
     }
 }
 
-std::optional<RespMessage> process_input(Parser& parser) {
+std::optional<Command> process_input(Parser& parser) {
     while (parser.pos < parser.end) {
         if (parser.state == ParsingState::Init) {
             if (auto next_state = consume_msg_type(parser)) {
@@ -109,7 +109,11 @@ std::optional<RespMessage> process_input(Parser& parser) {
             if (auto cmd_end = find_crlf(parser)) {
                 std::string msg = consume_msg(parser, *cmd_end);
                 parser.state = ParsingState::Init;
-                return RespString{std::move(msg)};
+
+                RespMessage respStr = RespString{std::move(msg)};
+                if (auto next_msg = append_to_frames(parser, respStr)) {
+                    return build_cmd(*next_msg);
+                }
             }
             return std::nullopt;
         }
@@ -119,9 +123,7 @@ std::optional<RespMessage> process_input(Parser& parser) {
                     parser.expected_str_len = *res;
                     parser.state = ParsingState::BulkString;
                 } else {
-                    // TODO: return error and close this client
-                    std::println("Failed to parse bulk string size: {}", res.error());
-                    exit(1);
+                    return InvalidCommand{std::format("Failed to parse bulk string size: {}", res.error())};
                 }
             }
         }
@@ -134,7 +136,7 @@ std::optional<RespMessage> process_input(Parser& parser) {
                 parser.state = ParsingState::Init;
 
                 if (auto next_msg = append_to_frames(parser, respStr)) {
-                    return *next_msg;
+                    return build_cmd(*next_msg);
                 }
             }
             else {
@@ -149,9 +151,7 @@ std::optional<RespMessage> process_input(Parser& parser) {
                     parser.frames.push_back(std::move(arr));
                     parser.state = ParsingState::Init;
                 } else {
-                    // TODO: return error and close this client
-                    std::println("Failed to parse array size: {}", res.error());
-                    exit(1);
+                    return InvalidCommand{std::format("Failed to parse array size: {}", res.error())};
                 }
             }
         }

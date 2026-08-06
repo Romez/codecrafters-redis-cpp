@@ -36,9 +36,8 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
             size_t bytes_read = co_await socket.async_read_some(asio::buffer(buf_begin, read_buf_size), asio::use_awaitable);
             buf.end += bytes_read;
 
-            while(auto resp_msg = process_input(buf)) {
-                auto cmd = build_cmd(*resp_msg);
-                auto msg = handle_cmd(cmd);
+            while(auto cmd = process_input(buf)) {
+                auto msg = handle_cmd(*cmd);
                 co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
             }
         }

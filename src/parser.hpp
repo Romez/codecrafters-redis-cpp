@@ -37,4 +37,4 @@ struct Parser {
 };
 
 void ensure_buf_cap(Parser& buf, size_t need);
-std::optional<RespMessage> process_input(Parser& buf);
+std::optional<Command> process_input(Parser& buf);
