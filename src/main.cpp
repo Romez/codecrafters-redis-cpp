@@ -8,18 +8,46 @@
 
 #include "resp.hpp"
 #include "parser.hpp"
+#include "storage.hpp"
 
 using asio::ip::tcp;
 
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
-std::string handle_cmd(Command& cmd) {
+std::string storage_error_to_string(StorageError err) {
+    switch (err) {
+    case StorageError::NotFound:
+        return "$-1\r\n";
+
+    case StorageError::WrongType:
+        return resp_simple_error("WRONGTYPE Operation against a key holding the wrong kind of value");
+
+    case StorageError::StreamKeySmallerThanTop:
+        return resp_simple_error("The ID specified in XADD is equal or smaller than the target stream top item");
+
+    case StorageError::StreamKeySmallerThanZero:
+        return resp_simple_error("The ID specified in XADD must be greater than 0-0");
+    }
+
+    std::unreachable();
+}
+
+std::string handle_cmd(Storage& storage, Command& cmd) {
     if (std::holds_alternative<PingCommand>(cmd)) {
         return resp_simple_string("PONG");
     }
-    if (auto* echo = std::get_if<EchoCommand>(&cmd)) {
+    else if (auto* echo = std::get_if<EchoCommand>(&cmd)) {
         return resp_bulk_string(echo->msg);
+    }
+    else if (auto* get = std::get_if<GetCommand>(&cmd)) {
+        auto val = dict_get(storage, get->key);
+        if (val) return resp_bulk_string(*val);
+        else     return resp_simple_error(storage_error_to_string(val.error()));
+    }
+    else if (auto* set = std::get_if<SetCommand>(&cmd)) {
+        dict_set(storage, *set);
+        return resp_simple_string("OK");
     }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
@@ -27,7 +55,7 @@ std::string handle_cmd(Command& cmd) {
     std::unreachable();
 }
 
-asio::awaitable<void> read_loop(tcp::socket socket) {
+asio::awaitable<void> read_loop(Storage& storage, tcp::socket socket) {
     Parser parser{};
 
     try {
@@ -43,7 +71,7 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
             parser.end += bytes_read;
 
             while(auto cmd = process_input(parser)) {
-                auto msg = handle_cmd(*cmd);
+                auto msg = handle_cmd(storage, *cmd);
                 co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
             }
         }
@@ -65,10 +93,12 @@ asio::awaitable<void> read_loop(tcp::socket socket) {
 asio::awaitable<void> accept_loop(tcp::acceptor&& acceptor) {
     auto io = acceptor.get_executor();
 
+    Storage storage{};
+
     try {
         while(true) {
             auto socket = co_await acceptor.async_accept(io, asio::use_awaitable);
-            asio::co_spawn(io, read_loop(std::move(socket)), asio::detached);
+            asio::co_spawn(io, read_loop(storage, std::move(socket)), asio::detached);
         }
     }
     catch (const asio::system_error& e) {

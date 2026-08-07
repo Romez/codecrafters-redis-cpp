@@ -31,8 +31,8 @@ struct EchoCommand {
 
 struct SetCommand {
     std::vector<std::pair<std::string, std::string>> args;
-    // int ex = 0;
-    // int px = 0;
+    int ex = 0;
+    int px = 0;
 };
 
 struct GetCommand {
@@ -46,6 +46,8 @@ struct InvalidCommand {
 using Command = std::variant<
     PingCommand,
     EchoCommand,
+    GetCommand,
+    SetCommand,
     InvalidCommand
 >;
 

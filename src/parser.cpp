@@ -101,6 +101,92 @@ std::optional<RespMessage> append_to_frames(Parser& buf, RespMessage& msg) {
     }
 }
 
+Command build_echo(std::span<RespMessage> args) {
+    if (args.size() != 1) {
+        return InvalidCommand{"wrong number of arguments for 'echo' command"};
+    }
+
+    if (auto* msg = std::get_if<RespString>(&args.front())) {
+        return EchoCommand{*msg};
+    }
+    
+    return InvalidCommand{"Invalid resp command"};
+}
+
+Command build_get(std::span<RespMessage> args) {
+    if (args.size() != 1) {
+        return InvalidCommand{"wrong number of arguments for 'get' command"};
+    }
+
+    if (auto* msg = std::get_if<RespString>(&args.front())) {
+        return GetCommand{*msg};
+    }
+    
+    return InvalidCommand{"Invalid resp command"};
+}
+
+Command build_set(std::span<RespMessage> args) {
+    if (args.size() % 2 != 0) {
+        return InvalidCommand{"wrong number of arguments for 'set' command"};
+    }
+
+    SetCommand cmd = {};
+
+    for (size_t i = 0; i < args.size(); i += 2) {
+        std::string keyItem;
+        std::string valItem;
+
+        if (auto* key = std::get_if<RespString>(&args[i])) {
+            keyItem = *key;
+        }
+        else {
+            return InvalidCommand{"SET key is not a String type"};
+        }
+
+        if (auto* val = std::get_if<RespString>(&args[i + 1])) {
+            valItem = *val;
+        }
+        else {
+            return InvalidCommand{"SET val is not a String type"};
+        }
+
+        if (keyItem == "EX") {
+            assert(false && "TODO: implement ex");
+        //     int ex = 0;
+        //     auto result = std::from_chars(valItem.data(), valItem.data() + valItem.size(), ex);
+
+        //     if (result.ec == std::errc()) {
+        //         cmd.ex = ex;
+        //     }
+        //     else {
+        //         return build_wrong_message("invalid EX value");
+        //     }
+        //     if (ex <= 0) {
+        //         return build_wrong_message("invalid expire time in 'set' command");
+        //     }
+        }
+        else if (keyItem == "PX") {
+            assert(false && "TODO: implement px");
+        //     int px = 0;
+        //     auto result = std::from_chars(valItem.data(), valItem.data() + valItem.size(), px);
+        //     if (result.ec == std::errc()) {
+        //         cmd.px = px;
+        //     }
+        //     else {
+        //         return build_wrong_message("invalid PX value");
+        //     }
+        //     if (px <= 0) {
+        //         return build_wrong_message("invalid expire time in 'set' command");
+        //     }
+        }
+        else {
+            cmd.args.push_back({ keyItem, valItem });
+        }
+    }
+
+    return cmd;
+}
+
 Command resp_msg_to_cmd(RespMessage& resp_msg) {
     if (auto* resp_arr = std::get_if<RespArray>(&resp_msg)) {
         if (resp_arr->size() == 0) {
@@ -108,28 +194,12 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
         }
 
         if (auto* cmd_str = std::get_if<RespString>(&resp_arr->front())) {
+            auto args = std::span(*resp_arr).subspan(1);
             std::string cmd = to_lower_case(*cmd_str);
-            if (cmd == "ping") {
-                return PingCommand {};
-            }
-            else if (cmd == "echo") {
-                auto args = std::span(*resp_arr).subspan(1);
-
-                if (auto* msg = std::get_if<RespString>(&args.front())) {
-                    return EchoCommand{*msg};
-                }
-            }
-            else if (cmd == "get") {
-                auto args = std::span(*resp_arr).subspan(1);
-
-                if (args.size() != 1) {
-                    return InvalidCommand{"wrong number of arguments for 'get' command"};
-                }
-                assert(false && "TODO: GET cmd");
-            }
-            else if (cmd == "set") {
-                assert(false && "TODO: SET cmd");
-            }
+            if (cmd == "ping")      return PingCommand {};
+            else if (cmd == "echo") return build_echo(args);
+            else if (cmd == "get")  return build_get(args);
+            else if (cmd == "set")  return build_set(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
