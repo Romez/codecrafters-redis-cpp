@@ -67,18 +67,23 @@ std::string consume_msg(Parser& buf, size_t cmd_end) {
     return resp_msg;
 }
 
-std::expected<size_t, std::string> consume_number(Parser& buf, size_t num_end) {
+std::expected<size_t, std::string> parse_num(const char* begin, const char* end) {
     size_t num;
-
-    auto begin = buf.data.get() + buf.pos;
-    auto end = buf.data.get() + num_end;
-
     auto [ptr, ec] = std::from_chars(begin, end, num);
     if (ec != std::errc{} || ptr != end) {
         return std::unexpected("Invalid number");
     }
+    return num;
+}
 
-    buf.pos = num_end + 2;
+std::expected<size_t, std::string> consume_number(Parser& parser, size_t num_end) {
+    auto begin = parser.data.get() + parser.pos;
+    auto end = parser.data.get() + num_end;
+
+    auto num = parse_num(begin, end);
+    if (num) {
+        parser.pos = num_end + 2;
+    }
     return num;
 }
 
@@ -126,66 +131,71 @@ Command build_get(std::span<RespMessage> args) {
 }
 
 Command build_set(std::span<RespMessage> args) {
-    if (args.size() % 2 != 0) {
-        return InvalidCommand{"wrong number of arguments for 'set' command"};
+    if (args.size() < 2) {
+        return InvalidCommand{"Invalid 'set' command"};
     }
 
-    SetCommand cmd = {};
-
-    for (size_t i = 0; i < args.size(); i += 2) {
-        std::string keyItem;
-        std::string valItem;
-
-        if (auto* key = std::get_if<RespString>(&args[i])) {
-            keyItem = *key;
-        }
-        else {
-            return InvalidCommand{"SET key is not a String type"};
-        }
-
-        if (auto* val = std::get_if<RespString>(&args[i + 1])) {
-            valItem = *val;
-        }
-        else {
-            return InvalidCommand{"SET val is not a String type"};
-        }
-
-        if (keyItem == "EX") {
-            assert(false && "TODO: implement ex");
-        //     int ex = 0;
-        //     auto result = std::from_chars(valItem.data(), valItem.data() + valItem.size(), ex);
-
-        //     if (result.ec == std::errc()) {
-        //         cmd.ex = ex;
-        //     }
-        //     else {
-        //         return build_wrong_message("invalid EX value");
-        //     }
-        //     if (ex <= 0) {
-        //         return build_wrong_message("invalid expire time in 'set' command");
-        //     }
-        }
-        else if (keyItem == "PX") {
-            assert(false && "TODO: implement px");
-        //     int px = 0;
-        //     auto result = std::from_chars(valItem.data(), valItem.data() + valItem.size(), px);
-        //     if (result.ec == std::errc()) {
-        //         cmd.px = px;
-        //     }
-        //     else {
-        //         return build_wrong_message("invalid PX value");
-        //     }
-        //     if (px <= 0) {
-        //         return build_wrong_message("invalid expire time in 'set' command");
-        //     }
-        }
-        else {
-            cmd.args.push_back({ keyItem, valItem });
+    for (auto arg : args) {
+        if (!std::holds_alternative<RespString>(arg)) {
+            return InvalidCommand{"Invalid 'set' arg type"};
         }
     }
 
-    return cmd;
+    SetCommand set{
+        .key = std::get<RespString>(args[0]),
+        .val = std::get<RespString>(args[1])
+    };
+
+    for(size_t i = 2; i < args.size();) {
+        const auto& key = to_lower_case(std::get<RespString>(args[i]));
+        
+        if (key == "ex" || key == "px") {
+            if (i + 1 >= args.size()) {
+                return InvalidCommand{"ttl value missing"};
+            }
+            const auto& value = std::get<RespString>(args[i+1]);
+            auto val = parse_num(value.data(), value.data() + value.size());
+            // TODO: add ttl validation max size
+            if (val) {
+                set.ttl = std::chrono::milliseconds(to_lower_case(key) == "ex" ? *val * 1000 : *val);
+                i += 2;
+            } else {
+                return InvalidCommand{val.error()};
+            }
+        } else {
+            return InvalidCommand{"Unexpected 'set' option"};
+        }
+    }
+
+    return set;
 }
+
+// void print_reps(RespMessage& resp_msg) {
+//     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
+//         std::println("ARR: [");
+//         for (auto item : *arr) {
+//             print_reps(item);
+//         }
+//         std::println("]");
+//     }
+//     else if (auto* str = std::get_if<RespString>(&resp_msg)) {
+//         std::println("STR: {}", *str);
+//     }
+//     else {
+//         assert(false && "Unexpected resp value");
+//     }
+// }
+
+// std::string cmd_type_str(Command& cmd) {
+//     if (std::holds_alternative<PingCommand>(cmd)) return "PingCommand";
+//     if (std::holds_alternative<EchoCommand>(cmd)) return "EchoCommand";
+//     if (std::holds_alternative<GetCommand>(cmd)) return "GetCommand";
+//     if (std::holds_alternative<SetCommand>(cmd)) return "SetCommand";
+//     if (std::holds_alternative<InvalidCommand>(cmd)) return "InvalidCommand";
+//     else {
+//         assert(false && "Unexpected command type");
+//     }
+// }
 
 Command resp_msg_to_cmd(RespMessage& resp_msg) {
     if (auto* resp_arr = std::get_if<RespArray>(&resp_msg)) {

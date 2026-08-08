@@ -10,9 +10,7 @@
 #include <span>
 #include "resp.hpp"
 
-struct StorageString {
-    std::string value;
-};
+using StorageString = std::string;
 
 using StorageList = std::list<std::string>;
 

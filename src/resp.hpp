@@ -7,6 +7,7 @@
 #include <string_view>
 #include <expected>
 #include <span>
+#include <chrono>
 
 #include "utils/str.hpp"
 
@@ -30,9 +31,9 @@ struct EchoCommand {
 };
 
 struct SetCommand {
-    std::vector<std::pair<std::string, std::string>> args;
-    int ex = 0;
-    int px = 0;
+    std::string key;
+    std::string val;
+    std::optional<std::chrono::microseconds> ttl;
 };
 
 struct GetCommand {
@@ -56,3 +57,5 @@ std::string resp_simple_string(std::string_view msg);
 std::string resp_simple_error(std::string_view  msg);
 
 std::string resp_bulk_string(std::string_view arg);
+
+std::string resp_blob_error(std::string_view  msg);

@@ -15,7 +15,7 @@ using asio::ip::tcp;
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
-std::string storage_error_to_string(StorageError err) {
+std::string resp_storage_error(StorageError err) {
     switch (err) {
     case StorageError::NotFound:
         return "$-1\r\n";
@@ -43,7 +43,7 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
     else if (auto* get = std::get_if<GetCommand>(&cmd)) {
         auto val = dict_get(storage, get->key);
         if (val) return resp_bulk_string(*val);
-        else     return resp_simple_error(storage_error_to_string(val.error()));
+        else return resp_storage_error(val.error());
     }
     else if (auto* set = std::get_if<SetCommand>(&cmd)) {
         dict_set(storage, *set);
@@ -53,6 +53,7 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
         return resp_simple_error(err->msg);
     }
     std::unreachable();
+    exit(1);
 }
 
 asio::awaitable<void> read_loop(Storage& storage, tcp::socket socket) {

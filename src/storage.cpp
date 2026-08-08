@@ -49,27 +49,17 @@ std::expected<T*, StorageError> lookup_or_create_key_as(Storage& storage, const 
 }
 
 void dict_set(Storage& storage, SetCommand& cmd) {
-    for (size_t i = 0; i < cmd.args.size(); i += 1) {
-        const auto& [key, val] = cmd.args[i];
+    storage.values[cmd.key] = cmd.val;
 
-        StorageString item{ .value = val };
-
-        // int ms = px + ex * 1000;
-        // if (ms > 0) {
-        //     storage.expires[key] = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
-        // }
-        // else {
-        //     storage.expires.erase(key);
-        // }
-
-        storage.values[key] = item;
+    if (cmd.ttl) {
+        storage.expires[cmd.key] = std::chrono::steady_clock::now() + *cmd.ttl;
     }
 }
 
-std::expected<std::string, StorageError> dict_get(Storage& storage, const StorageKey& key) {
+std::expected<StorageString, StorageError> dict_get(Storage& storage, const StorageKey& key) {
     auto result = lookup_key_as<StorageString>(storage, key);
     if (!result) {
         return std::unexpected(result.error());
     }
-    return (*result)->value;
+    return **result;
 }
