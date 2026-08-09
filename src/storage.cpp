@@ -141,3 +141,25 @@ std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand
 
     return (*list)->size();
 }
+
+std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd) {
+    auto listValue = lookup_key_as<StorageList>(storage, cmd.listKey);
+    if (!listValue) {
+        return std::unexpected(listValue.error());
+    }
+
+    StorageList& list = **listValue;
+
+    size_t itemsSize = std::min(list.size(), cmd.len);
+    std::vector<std::string> items;
+    for (size_t i = 0; i < itemsSize; ++i) {
+        items.push_back(list.front());
+        list.pop_front();
+    }
+
+    if (list.size() == 0) {
+        storage.values.erase(cmd.listKey);
+    }
+
+    return items;
+}

@@ -64,3 +64,5 @@ std::expected<size_t, StorageError> list_lpush(Storage& storage, const LpushComm
 std::expected<std::vector<std::string>, StorageError> list_lrange(Storage& storage, const LrangeCommand& cmd);
 
 std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand& cmd);
+
+std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd);

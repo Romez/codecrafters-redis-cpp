@@ -96,6 +96,28 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
             return resp_storage_error(result.error());
         }
     }
+    else if (auto* lpop = std::get_if<LpopCommand>(&cmd)) {
+        auto result = list_lpop(storage, *lpop);
+        if (!result) {
+            return resp_storage_error(result.error());
+        }
+        if (result->size() == 0) {
+            return "$-1\r\n";
+        }
+        else if (lpop->type == LpopType::Multiple) {
+            std::vector<std::string> msgs;
+            for (const std::string &arg : *result) {
+                msgs.push_back(resp_bulk_string(arg));
+            }
+            return resp_array(msgs);
+        }
+        else if (lpop->type == LpopType::Single) {
+            return resp_bulk_string(result->front());
+        }
+        else {
+            std::unreachable();;
+        }
+    }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
     }

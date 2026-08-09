@@ -50,10 +50,6 @@ struct LpushCommand {
     std::vector<std::string> args;
 };
 
-struct InvalidCommand {
-    std::string msg;
-};
-
 struct LrangeCommand {
     std::string listKey;
     int start;
@@ -62,6 +58,21 @@ struct LrangeCommand {
 
 struct LlenCommand {
     std::string listKey;
+};
+
+enum class LpopType {
+    Single,
+    Multiple,
+};
+
+struct LpopCommand {
+    std::string listKey;
+    size_t len;
+    LpopType type;
+};
+
+struct InvalidCommand {
+    std::string msg;
 };
 
 using Command = std::variant<
@@ -73,6 +84,7 @@ using Command = std::variant<
     LpushCommand,
     LrangeCommand,
     LlenCommand,
+    LpopCommand,
     InvalidCommand
 >;
 

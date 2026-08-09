@@ -287,6 +287,48 @@ Command build_llen(std::span<RespMessage> args) {
     }
 }
 
+Command build_lpop(std::span<RespMessage> args) {
+    if (args.size() == 1) {
+        std::string listKey;
+        if (auto* key = std::get_if<RespString>(&args[0])) {
+            listKey = *key;
+        }
+        else {
+            return InvalidCommand{"wrong 'lpop' key type"};
+        }
+
+        return LpopCommand{ listKey, 1, LpopType::Single };
+    }
+    else if (args.size() == 2) {
+        std::string listKey;
+        if (auto* key = std::get_if<RespString>(&args[0])) {
+            listKey = *key;
+        }
+        else {
+            return InvalidCommand{"wrong 'lpop' key type"};
+        }
+
+        std::string lenKey;
+        if (auto* len = std::get_if<RespString>(&args[1])) {
+            lenKey = *len;
+        }
+        else {
+            return InvalidCommand{"wrong 'lpop' len type"};
+        }
+
+        size_t len = 0;
+        auto result = std::from_chars(lenKey.data(), lenKey.data() + lenKey.size(), len);
+        if (result.ec != std::errc{}) {
+            return InvalidCommand{"value is not an integer or out of range"};
+        }
+
+        return LpopCommand{ listKey, len, LpopType::Multiple };
+    }
+    else {
+        return InvalidCommand{"wrong number of arguments for 'lpop' command"};
+    }
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -331,6 +373,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "lrange") return build_lrange(args);
             else if (cmd == "lpush") return build_lpush(args);
             else if (cmd == "llen") return build_llen(args);
+            else if (cmd == "lpop") return build_lpop(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
