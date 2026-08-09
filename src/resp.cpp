@@ -15,3 +15,7 @@ std::string resp_bulk_string(std::string_view arg) {
 std::string resp_blob_error(std::string_view  msg) {
     return std::format("!{}\r\n<{}\r\n", msg.size(), msg);
 }
+
+std::string resp_integer(int64_t val) {
+    return std::format(":{}\r\n", val);
+}

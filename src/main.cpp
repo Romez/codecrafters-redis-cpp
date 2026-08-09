@@ -49,6 +49,15 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
         dict_set(storage, *set);
         return resp_simple_string("OK");
     }
+    else if (auto* rpush = std::get_if<RpushCommand>(&cmd)) {
+        auto result = list_rpush(storage, *rpush);
+        if (result) {
+            return resp_integer(*result);
+        }
+        else {
+            return resp_storage_error(result.error());
+        }
+    }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
     }

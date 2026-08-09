@@ -56,3 +56,5 @@ struct Storage {
 void dict_set(Storage& storage, SetCommand& cmd);
 
 std::expected<std::string, StorageError> dict_get(Storage& storage, const StorageKey& key);
+
+std::expected<size_t, StorageError> list_rpush(Storage& storage, const RpushCommand& cmd);

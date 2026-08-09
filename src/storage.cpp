@@ -63,3 +63,16 @@ std::expected<StorageString, StorageError> dict_get(Storage& storage, const Stor
     }
     return **result;
 }
+
+std::expected<size_t, StorageError> list_rpush(Storage& storage, const RpushCommand& cmd) {
+    auto result = lookup_or_create_key_as<StorageList>(storage, cmd.listKey);
+    if (!result) {
+        return std::unexpected(result.error());
+    }
+
+    for (size_t i = 0; i < cmd.args.size(); ++i) {
+        (*result)->push_back(cmd.args[i]);
+    }
+
+    return (*result)->size();
+}

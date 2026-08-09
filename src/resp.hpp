@@ -40,6 +40,16 @@ struct GetCommand {
     std::string key;
 };
 
+struct RpushCommand {
+    std::string listKey;
+    std::vector<std::string> args;
+};
+
+struct LpushCommand {
+    std::string listKey;
+    std::vector<std::string> args;
+};
+
 struct InvalidCommand {
     std::string msg;
 };
@@ -49,6 +59,8 @@ using Command = std::variant<
     EchoCommand,
     GetCommand,
     SetCommand,
+    RpushCommand,
+    LpushCommand,
     InvalidCommand
 >;
 
@@ -59,3 +71,5 @@ std::string resp_simple_error(std::string_view  msg);
 std::string resp_bulk_string(std::string_view arg);
 
 std::string resp_blob_error(std::string_view  msg);
+
+std::string resp_integer(int64_t val);

@@ -170,6 +170,34 @@ Command build_set(std::span<RespMessage> args) {
     return set;
 }
 
+Command build_rpush(std::span<RespMessage> args) {
+    if (args.size() < 2) {
+        return InvalidCommand{"wrong number of arguments for 'rpush' command"};
+    }
+
+    std::string listKey;
+
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        listKey = *key;
+    }
+    else {
+        return InvalidCommand{"wrong 'rpush' key type"};
+    }
+
+    std::vector<std::string> values;
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (auto* val = std::get_if<RespString>(&args[i])) {
+            values.push_back(*val);
+        }
+        else {
+            return InvalidCommand{"wrong 'rpush' arg type"};
+        }
+    }
+
+    return RpushCommand{ listKey, std::move(values) };
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -210,6 +238,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "echo") return build_echo(args);
             else if (cmd == "get")  return build_get(args);
             else if (cmd == "set")  return build_set(args);
+            else if (cmd == "rpush") return build_rpush(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
