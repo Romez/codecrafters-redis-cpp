@@ -19,3 +19,12 @@ std::string resp_blob_error(std::string_view  msg) {
 std::string resp_integer(int64_t val) {
     return std::format(":{}\r\n", val);
 }
+
+std::string resp_array(std::span<const std::string> args) {
+    std::string msg;
+    for (const std::string& arg : args) {
+        msg += arg;
+    }
+
+    return std::format("*{}\r\n{}", args.size(), msg);
+}

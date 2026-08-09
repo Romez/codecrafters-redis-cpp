@@ -76,3 +76,46 @@ std::expected<size_t, StorageError> list_rpush(Storage& storage, const RpushComm
 
     return (*result)->size();
 }
+
+int normalize_neg_lrange_index(int index, size_t listSize) {
+    return std::max((int)listSize + index, 0);
+}
+
+std::expected<std::vector<std::string>, StorageError> list_lrange(Storage& storage, const LrangeCommand& cmd) {
+    auto listValue = lookup_key_as<StorageList>(storage, cmd.listKey);
+    if (!listValue) {
+        return std::unexpected(listValue.error());
+    }
+
+    StorageList& list = **listValue;
+
+    int start = cmd.start;
+    int stop = cmd.stop;
+
+    if (start < 0) {
+        start = normalize_neg_lrange_index(start, list.size());
+    }
+
+    if (stop < 0) {
+        stop = normalize_neg_lrange_index(stop, list.size());
+    }
+    else {
+        stop = stop >= list.size() ? list.size() - 1 : stop;
+    }
+
+    std::vector<std::string> result;
+
+    if (start >= list.size()) {
+        return result;
+    }
+
+    if (start > stop) {
+        return result;
+    }
+
+    for (std::string s : list | std::views::drop(start) | std::views::take(stop - start + 1)) {
+        result.push_back(s);
+    }
+
+    return result;
+}

@@ -58,6 +58,23 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
             return resp_storage_error(result.error());
         }
     }
+    else if (auto* lrange = std::get_if<LrangeCommand>(&cmd)) {
+        auto result = list_lrange(storage, *lrange);
+
+        if (result) {
+            std::vector<std::string> msgs;
+            for (const std::string &arg : *result) {
+                msgs.push_back(resp_bulk_string(arg));
+            }
+            return resp_array(msgs);
+        }
+        else if (result.error() == StorageError::NotFound) {
+            return "*0\r\n";
+        }
+        else {
+            return resp_storage_error(result.error());
+        }
+    }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
     }

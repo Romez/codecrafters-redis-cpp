@@ -54,6 +54,12 @@ struct InvalidCommand {
     std::string msg;
 };
 
+struct LrangeCommand {
+    std::string listKey;
+    int start;
+    int stop;
+};
+
 using Command = std::variant<
     PingCommand,
     EchoCommand,
@@ -61,6 +67,7 @@ using Command = std::variant<
     SetCommand,
     RpushCommand,
     LpushCommand,
+    LrangeCommand,
     InvalidCommand
 >;
 
@@ -73,3 +80,5 @@ std::string resp_bulk_string(std::string_view arg);
 std::string resp_blob_error(std::string_view  msg);
 
 std::string resp_integer(int64_t val);
+
+std::string resp_array(std::span<const std::string> args);

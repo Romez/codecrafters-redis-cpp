@@ -198,6 +198,55 @@ Command build_rpush(std::span<RespMessage> args) {
     return RpushCommand{ listKey, std::move(values) };
 }
 
+Command build_lrange(std::span<RespMessage> args) {
+    if (args.size() != 3) {
+        return InvalidCommand{"wrong number of arguments for 'lrange' command"};
+    }
+
+    std::string listKey;
+    std::string startArg;
+    std::string stopArg;
+
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        listKey = *key;
+    }
+    else {
+        return InvalidCommand{"wrong 'lrange' key type"};
+    }
+
+    if (auto* arg = std::get_if<RespString>(&args[1])) {
+        startArg = *arg;
+    }
+    else {
+        return InvalidCommand{"wrong 'lrange' start arg type"};
+    }
+
+    if (auto* arg = std::get_if<RespString>(&args[2])) {
+        stopArg = *arg;
+    }
+    else {
+        return InvalidCommand{"wrong 'lrange' stop arg type"};
+    }
+
+    int start = 0;
+    auto result = std::from_chars(startArg.data(), startArg.data() + startArg.size(), start);
+    if (result.ec != std::errc{}) {
+        return InvalidCommand{"value is not an integer or out of range"};
+    }
+
+    int stop = 0;
+    result = std::from_chars(stopArg.data(), stopArg.data() + stopArg.size(), stop);
+    if (result.ec != std::errc{}) {
+        return InvalidCommand{"value is not an integer or out of range"};
+    }
+
+    return LrangeCommand{
+        .listKey = listKey,
+        .start = start,
+        .stop = stop,
+    };
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -239,6 +288,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "get")  return build_get(args);
             else if (cmd == "set")  return build_set(args);
             else if (cmd == "rpush") return build_rpush(args);
+            else if (cmd == "lrange") return build_lrange(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
