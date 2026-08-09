@@ -198,6 +198,33 @@ Command build_rpush(std::span<RespMessage> args) {
     return RpushCommand{ listKey, std::move(values) };
 }
 
+Command build_lpush(std::span<RespMessage> args) {
+    if (args.size() < 2) {
+        return InvalidCommand{"wrong number of arguments for 'lpush' command"};
+    }
+
+    std::string listKey;
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        listKey = *key;
+    }
+    else {
+        return InvalidCommand("wrong 'lpush' list key type");
+    }
+
+    std::vector<std::string> values;
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (auto* val = std::get_if<RespString>(&args[i])) {
+            values.push_back(*val);
+        }
+        else {
+            return InvalidCommand{"wrong 'lpush' arg type"};
+        }
+    }
+
+    return LpushCommand{ listKey, std::move(values) };
+}
+
 Command build_lrange(std::span<RespMessage> args) {
     if (args.size() != 3) {
         return InvalidCommand{"wrong number of arguments for 'lrange' command"};
@@ -289,6 +316,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "set")  return build_set(args);
             else if (cmd == "rpush") return build_rpush(args);
             else if (cmd == "lrange") return build_lrange(args);
+            else if (cmd == "lpush") return build_lpush(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }

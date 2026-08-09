@@ -59,4 +59,6 @@ std::expected<std::string, StorageError> dict_get(Storage& storage, const Storag
 
 std::expected<size_t, StorageError> list_rpush(Storage& storage, const RpushCommand& cmd);
 
+std::expected<size_t, StorageError> list_lpush(Storage& storage, const LpushCommand& cmd);
+
 std::expected<std::vector<std::string>, StorageError> list_lrange(Storage& storage, const LrangeCommand& cmd);

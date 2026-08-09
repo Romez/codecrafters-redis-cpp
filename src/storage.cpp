@@ -77,6 +77,19 @@ std::expected<size_t, StorageError> list_rpush(Storage& storage, const RpushComm
     return (*result)->size();
 }
 
+std::expected<size_t, StorageError> list_lpush(Storage& storage, const LpushCommand& cmd) {
+    auto result = lookup_or_create_key_as<StorageList>(storage, cmd.listKey);
+    if (!result) {
+        return std::unexpected(result.error());
+    }
+
+    for (size_t i = 0; i < cmd.args.size(); ++i) {
+        (*result)->push_front(cmd.args[i]);
+    }
+
+    return (*result)->size();
+}
+
 int normalize_neg_lrange_index(int index, size_t listSize) {
     return std::max((int)listSize + index, 0);
 }

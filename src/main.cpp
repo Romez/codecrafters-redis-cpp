@@ -58,9 +58,18 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
             return resp_storage_error(result.error());
         }
     }
+    else if (auto* lpush = std::get_if<LpushCommand>(&cmd)) {
+        auto result = list_lpush(storage, *lpush);
+
+        if (result) {
+            return resp_integer(*result);
+        }
+        else {
+            return resp_storage_error(result.error());
+        }
+    }
     else if (auto* lrange = std::get_if<LrangeCommand>(&cmd)) {
         auto result = list_lrange(storage, *lrange);
-
         if (result) {
             std::vector<std::string> msgs;
             for (const std::string &arg : *result) {
