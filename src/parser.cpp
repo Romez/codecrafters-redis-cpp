@@ -274,6 +274,19 @@ Command build_lrange(std::span<RespMessage> args) {
     };
 }
 
+Command build_llen(std::span<RespMessage> args) {
+    if (args.size() != 1) {
+        return InvalidCommand{"wrong number of arguments for 'llen' command"};
+    }
+
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        return LlenCommand{ *key };
+    }
+    else {
+        return InvalidCommand{"wrong 'llen' key type"};
+    }
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -317,6 +330,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "rpush") return build_rpush(args);
             else if (cmd == "lrange") return build_lrange(args);
             else if (cmd == "lpush") return build_lpush(args);
+            else if (cmd == "llen") return build_llen(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }

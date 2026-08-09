@@ -60,6 +60,10 @@ struct LrangeCommand {
     int stop;
 };
 
+struct LlenCommand {
+    std::string listKey;
+};
+
 using Command = std::variant<
     PingCommand,
     EchoCommand,
@@ -68,6 +72,7 @@ using Command = std::variant<
     RpushCommand,
     LpushCommand,
     LrangeCommand,
+    LlenCommand,
     InvalidCommand
 >;
 

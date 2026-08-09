@@ -84,6 +84,18 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
             return resp_storage_error(result.error());
         }
     }
+    else if (auto* llen = std::get_if<LlenCommand>(&cmd)) {
+        auto result = list_len(storage, *llen);
+        if (result) {
+            return resp_integer(*result);
+        }
+        else if (result.error() == StorageError::NotFound) {
+            return resp_integer(0);
+        }
+        else {
+            return resp_storage_error(result.error());
+        }
+    }
     else if (auto* err = std::get_if<InvalidCommand>(&cmd)) {
         return resp_simple_error(err->msg);
     }

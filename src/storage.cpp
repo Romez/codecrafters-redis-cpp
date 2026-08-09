@@ -132,3 +132,12 @@ std::expected<std::vector<std::string>, StorageError> list_lrange(Storage& stora
 
     return result;
 }
+
+std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand& cmd) {
+    auto list = lookup_key_as<StorageList>(storage, cmd.listKey);
+    if (!list) {
+        return std::unexpected(list.error());
+    }
+
+    return (*list)->size();
+}
