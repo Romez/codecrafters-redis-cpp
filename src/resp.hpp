@@ -33,7 +33,7 @@ struct EchoCommand {
 struct SetCommand {
     std::string key;
     std::string val;
-    std::optional<std::chrono::microseconds> ttl;
+    std::optional<std::chrono::milliseconds> ttl;
 };
 
 struct GetCommand {
@@ -70,6 +70,11 @@ struct LpopCommand {
     size_t len;
     LpopType type;
 };
+
+// struct BlpopCommand {
+//     std::vector<std::string> listKeys;
+//     std::optional<std::chrono::milliseconds> timeout;
+// };
 
 struct InvalidCommand {
     std::string msg;

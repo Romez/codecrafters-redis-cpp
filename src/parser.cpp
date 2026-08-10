@@ -329,6 +329,10 @@ Command build_lpop(std::span<RespMessage> args) {
     }
 }
 
+// Command build_blpop(std::span<RespMessage> args) {
+
+// }
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -374,6 +378,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "lpush") return build_lpush(args);
             else if (cmd == "llen") return build_llen(args);
             else if (cmd == "lpop") return build_lpop(args);
+            // else if (cmd == "blpop") return build_blpop(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
