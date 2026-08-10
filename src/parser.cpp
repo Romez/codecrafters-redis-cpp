@@ -329,9 +329,45 @@ Command build_lpop(std::span<RespMessage> args) {
     }
 }
 
-// Command build_blpop(std::span<RespMessage> args) {
+Command build_blpop(std::span<RespMessage> args) {
+    if (args.size() < 2) {
+        return InvalidCommand{"wrong number of arguments for 'blpop' command"};
+    }
 
-// }
+    for (auto arg : args) {
+        if (!std::holds_alternative<RespString>(arg)) {
+            return InvalidCommand{"Invalid 'blpop' arg type"};
+        }
+    }
+
+    std::string lenKey = std::get<RespString>(args.back());
+
+    double timeoutSec = 0;
+
+    auto lenBegin = lenKey.data();
+    auto lenEnd = lenKey.data() + lenKey.size();
+    auto [ptr, ec] = std::from_chars(lenBegin, lenEnd, timeoutSec);
+    if (ec != std::errc{} || ptr != lenEnd) {
+        return InvalidCommand("value is not an integer or out of range");
+    }
+
+    if (timeoutSec < 0) {
+        return InvalidCommand("timeout is negative");
+    }
+
+    BlpopCommand cmd{};
+
+    for (size_t i = 0; i < args.size() - 1; ++i) {
+        auto s = std::get<RespString>(args[i]);
+        cmd.listKeys.push_back(s);
+    }
+
+    if (timeoutSec > 0) {
+        cmd.timeout = std::chrono::milliseconds((long)(timeoutSec * 1000));
+    }
+
+    return cmd;
+}
 
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
@@ -378,7 +414,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "lpush") return build_lpush(args);
             else if (cmd == "llen") return build_llen(args);
             else if (cmd == "lpop") return build_lpop(args);
-            // else if (cmd == "blpop") return build_blpop(args);
+            else if (cmd == "blpop") return build_blpop(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }

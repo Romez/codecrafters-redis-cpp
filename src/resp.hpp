@@ -71,10 +71,10 @@ struct LpopCommand {
     LpopType type;
 };
 
-// struct BlpopCommand {
-//     std::vector<std::string> listKeys;
-//     std::optional<std::chrono::milliseconds> timeout;
-// };
+struct BlpopCommand {
+    std::vector<std::string> listKeys;
+    std::optional<std::chrono::milliseconds> timeout;
+};
 
 struct InvalidCommand {
     std::string msg;
@@ -90,6 +90,7 @@ using Command = std::variant<
     LrangeCommand,
     LlenCommand,
     LpopCommand,
+    BlpopCommand,
     InvalidCommand
 >;
 

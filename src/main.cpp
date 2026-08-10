@@ -122,6 +122,9 @@ std::string handle_cmd(Storage& storage, Command& cmd) {
                 std::unreachable();
             }
         }
+        else if constexpr (std::is_same_v<T, BlpopCommand>) {
+            return std::string("TODO: blpop");
+        }
         else if constexpr (std::is_same_v<T, InvalidCommand>) {
             return resp_simple_error(arg.msg);
         }
