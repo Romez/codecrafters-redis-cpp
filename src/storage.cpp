@@ -168,7 +168,7 @@ std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& 
     for (size_t i = 0; i < cmd.listKeys.size(); ++i) {
         const std::string &listKey = cmd.listKeys[i];
 
-        auto result = list_lpop(storage, listKey, 1);
+        auto result = list_lpop(storage, LpopCommand{listKey, 1});
         if (!result) {
             if (result.error() == StorageError::NotFound) {
                 continue;

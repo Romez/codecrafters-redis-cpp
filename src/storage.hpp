@@ -67,4 +67,4 @@ std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand
 
 std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd);
 
-std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd)
+std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd);

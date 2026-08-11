@@ -151,8 +151,9 @@ asio::awaitable<void> read_loop(Storage& storage, tcp::socket socket) {
                         auto io = co_await asio::this_coro::executor;
 
                         auto timer = asio::steady_timer(io, ms);
-
                         co_await timer.async_wait(asio::use_awaitable);
+
+                        // somebody should close it if value found
 
                         std::println("Timeout");
                     }
