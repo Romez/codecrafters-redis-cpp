@@ -34,107 +34,6 @@ std::string resp_storage_error(StorageError err) {
     std::unreachable();
 }
 
-std::string handle_cmd(Storage& storage, Command& cmd) {
-    return std::visit([&storage](auto arg){
-        using T = std::decay_t<decltype(arg)>;
-
-        if constexpr (std::is_same_v<T, PingCommand>) {
-            return resp_simple_string("PONG");
-        }
-        else if constexpr (std::is_same_v<T, EchoCommand>) {
-            return resp_bulk_string(arg.msg);
-        }
-        else if constexpr (std::is_same_v<T, GetCommand>) {
-            auto val = dict_get(storage, arg.key);
-            if (val) return resp_bulk_string(*val);
-            else return resp_storage_error(val.error());
-        }
-        else if constexpr (std::is_same_v<T, SetCommand>) {
-            dict_set(storage, arg);
-            return resp_simple_string("OK");
-        }
-        else if constexpr (std::is_same_v<T, RpushCommand>) {
-            auto result = list_rpush(storage, arg);
-            if (result) {
-                return resp_integer(*result);
-            }
-            else {
-                return resp_storage_error(result.error());
-            }
-        }
-        else if constexpr (std::is_same_v<T, LpushCommand>) {
-            auto result = list_lpush(storage, arg);
-
-            if (result) {
-                return resp_integer(*result);
-            }
-            else {
-                return resp_storage_error(result.error());
-            }
-        }
-        else if constexpr (std::is_same_v<T, LrangeCommand>) {
-            auto result = list_lrange(storage, arg);
-            if (result) {
-                std::vector<std::string> msgs;
-                for (const std::string &arg : *result) {
-                    msgs.push_back(resp_bulk_string(arg));
-                }
-                return resp_array(msgs);
-            }
-            else if (result.error() == StorageError::NotFound) {
-                return std::string("*0\r\n");
-            }
-            else {
-                return resp_storage_error(result.error());
-            }
-        }
-        else if constexpr (std::is_same_v<T, LlenCommand>) {
-            auto result = list_len(storage, arg);
-            if (result) {
-                return resp_integer(*result);
-            }
-            else if (result.error() == StorageError::NotFound) {
-                return resp_integer(0);
-            }
-            else {
-                return resp_storage_error(result.error());
-            }
-        }
-        else if constexpr (std::is_same_v<T, LpopCommand>) {
-            auto result = list_lpop(storage, arg);
-            if (!result) {
-                return resp_storage_error(result.error());
-            }
-            if (result->size() == 0) {
-                return std::string("$-1\r\n");
-            }
-            else if (arg.type == LpopType::Multiple) {
-                std::vector<std::string> msgs;
-                for (const std::string &arg : *result) {
-                    msgs.push_back(resp_bulk_string(arg));
-                }
-                return resp_array(msgs);
-            }
-            else if (arg.type == LpopType::Single) {
-                return resp_bulk_string(result->front());
-            }
-            else {
-                std::unreachable();
-            }
-        }
-        else if constexpr (std::is_same_v<T, BlpopCommand>) {
-            return std::string("TODO: blpop");
-        }
-        else if constexpr (std::is_same_v<T, InvalidCommand>) {
-            return resp_simple_error(arg.msg);
-        }
-        else {
-            std::unreachable();
-            exit(1);
-        }
-    }, cmd);
-}
-
 asio::awaitable<void> read_loop(Storage& storage, tcp::socket socket) {
     Parser parser{};
 
@@ -151,7 +50,124 @@ asio::awaitable<void> read_loop(Storage& storage, tcp::socket socket) {
             parser.end += bytes_read;
 
             while(auto cmd = process_input(parser)) {
-                auto msg = handle_cmd(storage, *cmd);
+                std::string msg;
+                if (std::holds_alternative<PingCommand>(*cmd)) {
+                    msg = resp_simple_string("PONG");
+                }
+                else if (auto* echo = std::get_if<EchoCommand>(&*cmd)) {
+                    msg = resp_bulk_string(echo->msg);
+                }
+                else if (auto* get = std::get_if<GetCommand>(&*cmd)) {
+                    auto val = dict_get(storage, get->key);
+                    if (val) {
+                        msg = resp_bulk_string(*val);
+                    }
+                    else {
+                        msg = resp_storage_error(val.error());
+                    }
+                }
+                else if (auto* set = std::get_if<SetCommand>(&*cmd)) {
+                    dict_set(storage, *set);
+                    msg = resp_simple_string("OK");
+                }
+                else if (auto* rpush = std::get_if<RpushCommand>(&*cmd)) {
+                    auto result = list_rpush(storage, *rpush);
+                    if (result) {
+                        msg = resp_integer(*result);
+                    }
+                    else {
+                        msg = resp_storage_error(result.error());
+                    }
+                }
+                else if (auto* lpush = std::get_if<LpushCommand>(&*cmd)) {
+                    auto result = list_lpush(storage, *lpush);
+
+                    if (result) {
+                        msg = resp_integer(*result);
+                    }
+                    else {
+                        msg = resp_storage_error(result.error());
+                    }
+                }
+                else if (auto* lrange = std::get_if<LrangeCommand>(&*cmd)) {
+                    auto result = list_lrange(storage, *lrange);
+                    if (result) {
+                        std::vector<std::string> msgs;
+                        for (const std::string &arg : *result) {
+                            msgs.push_back(resp_bulk_string(arg));
+                        }
+                        msg = resp_array(msgs);
+                    }
+                    else if (result.error() == StorageError::NotFound) {
+                        msg = std::string("*0\r\n");
+                    }
+                    else {
+                        msg = resp_storage_error(result.error());
+                    }
+                }
+                else if (auto* llen = std::get_if<LlenCommand>(&*cmd)) {
+                    auto result = list_len(storage, *llen);
+                    if (result) {
+                        msg = resp_integer(*result);
+                    }
+                    else if (result.error() == StorageError::NotFound) {
+                        msg = resp_integer(0);
+                    }
+                    else {
+                        msg = resp_storage_error(result.error());
+                    }
+                }
+                else if (auto* lpop = std::get_if<LpopCommand>(&*cmd)) {
+                    auto result = list_lpop(storage, *lpop);
+                    if (!result) {
+                        msg = resp_storage_error(result.error());
+                    }
+                    if (result->size() == 0) {
+                        msg = std::string("$-1\r\n");
+                    }
+                    else if (lpop->type == LpopType::Multiple) {
+                        std::vector<std::string> msgs;
+                        for (const std::string &arg : *result) {
+                            msgs.push_back(resp_bulk_string(arg));
+                        }
+                        msg = resp_array(msgs);
+                    }
+                    else if (lpop->type == LpopType::Single) {
+                        msg = resp_bulk_string(result->front());
+                    }
+                    else {
+                        std::unreachable();
+                    }
+                }
+                else if (auto* b = std::get_if<BlpopCommand>(&*cmd)) {
+                    auto result = blpop(storage, *b);
+                    if (result) {
+                        std::string key = resp_bulk_string(result->first);
+                        std::string value = resp_bulk_string(result->second);
+                        msg = resp_array(std::array<std::string, 2>{key, value});
+                    }
+                    else if (result.error() == StorageError::NotFound) {
+                        auto ms = b->timeout ? *b->timeout : std::chrono::milliseconds(9999);
+                        auto io = co_await asio::this_coro::executor;
+
+                        auto timer = asio::steady_timer(io, ms);
+
+                        co_await timer.async_wait(asio::use_awaitable);
+
+                        std::println("Timeout");
+                    }
+                    else {
+                        msg = resp_storage_error(result.error());
+                    }
+                }
+                else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
+                    msg = resp_simple_error(err->msg);
+                }
+                else {
+                    std::unreachable();
+                    exit(1);
+                }
+
                 co_await asio::async_write(socket, asio::buffer(msg), asio::use_awaitable);
             }
         }

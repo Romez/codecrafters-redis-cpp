@@ -163,3 +163,21 @@ std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage
 
     return items;
 }
+
+std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd) {
+    for (size_t i = 0; i < cmd.listKeys.size(); ++i) {
+        const std::string &listKey = cmd.listKeys[i];
+
+        auto result = list_lpop(storage, listKey, 1);
+        if (!result) {
+            if (result.error() == StorageError::NotFound) {
+                continue;
+            } else {
+                return std::unexpected(result.error());
+            }
+        }
+
+        return std::pair<std::string, std::string>{listKey, (*result)[0]};
+    }
+    return std::unexpected(StorageError::NotFound);
+}
