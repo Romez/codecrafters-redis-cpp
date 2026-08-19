@@ -53,7 +53,7 @@ struct Storage {
     std::unordered_map<StorageKey, std::chrono::steady_clock::time_point> expires;
 };
 
-void dict_set(Storage& storage, SetCommand& cmd);
+void dict_set(Storage& storage, const SetCommand& cmd);
 
 std::expected<std::string, StorageError> dict_get(Storage& storage, const StorageKey& key);
 
@@ -68,3 +68,5 @@ std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand
 std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd);
 
 std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd);
+
+std::expected<std::vector<std::string>, StorageError> lpop(Storage& storage, const std::string& key, size_t len);

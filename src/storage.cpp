@@ -48,7 +48,7 @@ std::expected<T*, StorageError> lookup_or_create_key_as(Storage& storage, const 
     return std::unexpected(StorageError::WrongType);
 }
 
-void dict_set(Storage& storage, SetCommand& cmd) {
+void dict_set(Storage& storage, const SetCommand& cmd) {
     storage.values[cmd.key] = cmd.val;
 
     if (cmd.ttl) {
@@ -142,15 +142,15 @@ std::expected<size_t, StorageError> list_len(Storage& storage, const LlenCommand
     return (*list)->size();
 }
 
-std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd) {
-    auto listValue = lookup_key_as<StorageList>(storage, cmd.listKey);
+std::expected<std::vector<std::string>, StorageError> lpop(Storage& storage, const std::string& key, size_t len) {
+    auto listValue = lookup_key_as<StorageList>(storage, key);
     if (!listValue) {
         return std::unexpected(listValue.error());
     }
 
     StorageList& list = **listValue;
 
-    size_t itemsSize = std::min(list.size(), cmd.len);
+    size_t itemsSize = std::min(list.size(), len);
     std::vector<std::string> items;
     for (size_t i = 0; i < itemsSize; ++i) {
         items.push_back(list.front());
@@ -158,17 +158,21 @@ std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage
     }
 
     if (list.size() == 0) {
-        storage.values.erase(cmd.listKey);
+        storage.values.erase(key);
     }
 
     return items;
+}
+
+std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage, const LpopCommand& cmd) {
+    return lpop(storage, cmd.listKey, cmd.len);
 }
 
 std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd) {
     for (size_t i = 0; i < cmd.listKeys.size(); ++i) {
         const std::string &listKey = cmd.listKeys[i];
 
-        auto result = list_lpop(storage, LpopCommand{listKey, 1});
+        auto result = lpop(storage, listKey, 1);
         if (!result) {
             if (result.error() == StorageError::NotFound) {
                 continue;
