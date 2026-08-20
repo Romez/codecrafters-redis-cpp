@@ -110,7 +110,11 @@ std::string handle_lpush(Storage& storage, Waitings& waitings, const LpushComman
     return resp_integer(*result);
 }
 
-asio::awaitable<std::string> handle_blpop(Storage& storage, Waitings& waitings, const BlpopCommand& cmd) {
+asio::awaitable<std::string> handle_blpop(
+    Storage& storage,
+    Waitings& waitings,
+    std::shared_ptr<channel<void(std::error_code, std::string)>> ready_chan,
+    const BlpopCommand& cmd) {
     auto result = blpop(storage, cmd);
     if (result) {
         std::string key = resp_bulk_string(result->first);
@@ -119,12 +123,12 @@ asio::awaitable<std::string> handle_blpop(Storage& storage, Waitings& waitings, 
     }
     else if (result.error() == StorageError::NotFound) {
         // auto ms = b->timeout ? *b->timeout : std::chrono::milliseconds(9999);
-        auto io = co_await asio::this_coro::executor;
+        // auto io = co_await asio::this_coro::executor;
 
         // auto timer = asio::steady_timer(io, ms);
         // co_await timer.async_wait(asio::use_awaitable);
 
-        auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
+        // auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
 
         for (const auto& k : cmd.listKeys) {
             waitings[k].push_back(ready_chan);
@@ -138,6 +142,8 @@ asio::awaitable<std::string> handle_blpop(Storage& storage, Waitings& waitings, 
                 waitings.erase(k);
             }
         }
+
+        ready_chan->reset();
 
         co_return msg;
     }
@@ -202,6 +208,9 @@ std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
 asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socket socket) {
     Parser parser{};
 
+    auto io = co_await asio::this_coro::executor;
+    auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
+
     try {
         while(true) {
             if (auto err = ensure_buf_cap(parser, read_buf_size); !err) {
@@ -244,7 +253,7 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                     resp = handle_lpop(storage, *lpop);
                 }
                 else if (auto* blp = std::get_if<BlpopCommand>(&*cmd)) {
-                    resp = co_await handle_blpop(storage, waitings, *blp);
+                    resp = co_await handle_blpop(storage, waitings, ready_chan, *blp);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);
@@ -265,7 +274,13 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
         else {
             std::println("Read socket failure: {}", e.code().message());
         }
-        // TODO: clear waitings
+
+        for (auto& [k, v] : waitings) {
+            std::erase(waitings[k], ready_chan);
+            if (waitings.contains(k) && waitings[k].empty()) {
+                waitings.erase(k);
+            }
+        }
     }
     catch (const std::exception& e) {
         std::println("Read failure: {}", e.what());
