@@ -24,6 +24,11 @@ using Waitings = std::unordered_map<
     std::list<std::shared_ptr<channel<void(std::error_code, std::string)>>>
 >;
 
+struct Waiter {
+    Command cmd;
+    std::shared_ptr<channel<void(std::error_code, std::string)>> chan;
+};
+
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
@@ -43,6 +48,53 @@ std::string resp_storage_error(StorageError err) {
     }
 
     std::unreachable();
+}
+
+void add_waiter(Waitings& waitings, Waiter& waiter, const Command& cmd) {
+    if (const auto* blpop = std::get_if<BlpopCommand>(&cmd)) {
+        waiter.cmd = *blpop;
+        for (const auto& k : blpop->listKeys) {
+            waitings[k].push_back(waiter.chan);
+        }
+        waiter.chan->reset();
+    }
+    else {
+        assert(false && "Unexpected blocking cmd");
+    }
+}
+
+void clear_waiter(Waitings& waitings, Waiter& waiter) {
+    if (const auto* blpop = std::get_if<BlpopCommand>(&waiter.cmd)) {
+        for (const auto& k : blpop->listKeys) {
+            std::erase(waitings[k], waiter.chan);
+            if (waitings.contains(k) && waitings[k].empty()) {
+                waitings.erase(k);
+            }
+        }
+        waiter.chan->reset();
+    }
+    else {
+        assert(false && "Unexpected clear blocking cmd");
+    }
+}
+
+void handle_waitings(Storage& storage, Waitings& waitings, const std::string list_key) {
+    while(waitings.contains(list_key) && storage.values.contains(list_key)) {
+        auto channel = waitings[list_key].front();
+        waitings[list_key].pop_back();
+
+        auto res = lpop(storage, list_key, 1);
+        if (res) {
+            std::string msg = resp_array(std::vector<std::string>{
+                resp_bulk_string(list_key),
+                resp_bulk_string(res->front())
+            });
+            channel->try_send(std::error_code{}, msg);
+        }
+        else {
+            channel->try_send(std::error_code{}, resp_storage_error(res.error()));
+        }
+    }
 }
 
 std::string handle_ping() {
@@ -68,33 +120,13 @@ std::string handle_set(Storage& storage, const SetCommand& cmd) {
     return resp_simple_string("OK");
 }
 
-void handle_blpop_watings(Storage& storage, Waitings& waitings, const std::string list_key) {
-    while(waitings.contains(list_key) && storage.values.contains(list_key)) {
-        auto channel = waitings[list_key].front();
-        waitings[list_key].pop_back();
-
-        auto res = lpop(storage, list_key, 1);
-        if (!res) {
-            channel->try_send(std::error_code{}, resp_storage_error(res.error()));
-        }
-        if (res) {
-            std::string msg = resp_array(std::vector<std::string>{
-                resp_bulk_string(list_key),
-                resp_bulk_string(res->front())
-            });
-            auto success = channel->try_send(std::error_code{}, msg);
-            std::println("channel: {}", success);
-        }
-    }
-}
-
 std::string handle_rpush(Storage& storage, Waitings& waitings, const RpushCommand& cmd) {
     auto result = list_rpush(storage, cmd);
     if (!result) {
         return resp_storage_error(result.error());
     }
 
-    handle_blpop_watings(storage, waitings, cmd.listKey);
+    handle_waitings(storage, waitings, cmd.listKey);
 
     return resp_integer(*result);
 }
@@ -105,7 +137,7 @@ std::string handle_lpush(Storage& storage, Waitings& waitings, const LpushComman
         return resp_storage_error(result.error());
     }
 
-    handle_blpop_watings(storage, waitings, cmd.listKey);
+    handle_waitings(storage, waitings, cmd.listKey);
 
     return resp_integer(*result);
 }
@@ -113,7 +145,7 @@ std::string handle_lpush(Storage& storage, Waitings& waitings, const LpushComman
 asio::awaitable<std::string> handle_blpop(
     Storage& storage,
     Waitings& waitings,
-    std::shared_ptr<channel<void(std::error_code, std::string)>> ready_chan,
+    Waiter& waiter,
     const BlpopCommand& cmd) {
     auto result = blpop(storage, cmd);
     if (result) {
@@ -130,20 +162,11 @@ asio::awaitable<std::string> handle_blpop(
 
         // auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
 
-        for (const auto& k : cmd.listKeys) {
-            waitings[k].push_back(ready_chan);
-        }
+        add_waiter(waitings, waiter, cmd);
 
-        auto msg = co_await ready_chan->async_receive(asio::use_awaitable);
+        auto msg = co_await waiter.chan->async_receive(asio::use_awaitable);
 
-        for (const auto& k : cmd.listKeys) {
-            std::erase(waitings[k], ready_chan);
-            if (waitings.contains(k) && waitings[k].empty()) {
-                waitings.erase(k);
-            }
-        }
-
-        ready_chan->reset();
+        clear_waiter(waitings, waiter);
 
         co_return msg;
     }
@@ -209,7 +232,10 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
     Parser parser{};
 
     auto io = co_await asio::this_coro::executor;
-    auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
+
+    Waiter waiter{
+        .chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0)
+    };
 
     try {
         while(true) {
@@ -253,7 +279,7 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                     resp = handle_lpop(storage, *lpop);
                 }
                 else if (auto* blp = std::get_if<BlpopCommand>(&*cmd)) {
-                    resp = co_await handle_blpop(storage, waitings, ready_chan, *blp);
+                    resp = co_await handle_blpop(storage, waitings, waiter, *blp);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);
@@ -275,12 +301,7 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
             std::println("Read socket failure: {}", e.code().message());
         }
 
-        for (auto& [k, v] : waitings) {
-            std::erase(waitings[k], ready_chan);
-            if (waitings.contains(k) && waitings[k].empty()) {
-                waitings.erase(k);
-            }
-        }
+        clear_waiter(waitings, waiter);
     }
     catch (const std::exception& e) {
         std::println("Read failure: {}", e.what());
