@@ -95,7 +95,7 @@ std::string handle_rpush(Storage& storage, Waitings& waitings, const RpushComman
     }
 
     handle_blpop_watings(storage, waitings, cmd.listKey);
-    
+
     return resp_integer(*result);
 }
 
@@ -146,6 +146,59 @@ asio::awaitable<std::string> handle_blpop(Storage& storage, Waitings& waitings, 
     }
 }
 
+std::string handle_lrange(Storage& storage, const LrangeCommand& cmd) {
+    auto result = list_lrange(storage, cmd);
+    if (result) {
+        std::vector<std::string> msgs;
+        for (const std::string &arg : *result) {
+            msgs.push_back(resp_bulk_string(arg));
+        }
+        return resp_array(msgs);
+    }
+    else if (result.error() == StorageError::NotFound) {
+        return std::string("*0\r\n");
+    }
+    else {
+        return resp_storage_error(result.error());
+    }
+}
+
+std::string handle_llen(Storage& storage, const LlenCommand& cmd) {
+    auto result = list_len(storage, cmd);
+    if (result) {
+        return resp_integer(*result);
+    }
+    else if (result.error() == StorageError::NotFound) {
+        return resp_integer(0);
+    }
+    else {
+        return resp_storage_error(result.error());
+    }
+}
+
+std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
+    auto result = list_lpop(storage, cmd);
+    if (!result) {
+        return resp_storage_error(result.error());
+    }
+    if (result->size() == 0) {
+        return std::string("$-1\r\n");
+    }
+    else if (cmd.type == LpopType::Multiple) {
+        std::vector<std::string> msgs;
+        for (const std::string &arg : *result) {
+            msgs.push_back(resp_bulk_string(arg));
+        }
+        return resp_array(msgs);
+    }
+    else if (cmd.type == LpopType::Single) {
+        return resp_bulk_string(result->front());
+    }
+    else {
+        std::unreachable();
+    }
+}
+
 asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socket socket) {
     Parser parser{};
 
@@ -182,54 +235,13 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                     resp = handle_lpush(storage, waitings, *lpush);
                 }
                 else if (auto* lrange = std::get_if<LrangeCommand>(&*cmd)) {
-                    auto result = list_lrange(storage, *lrange);
-                    if (result) {
-                        std::vector<std::string> msgs;
-                        for (const std::string &arg : *result) {
-                            msgs.push_back(resp_bulk_string(arg));
-                        }
-                        resp = resp_array(msgs);
-                    }
-                    else if (result.error() == StorageError::NotFound) {
-                        resp = std::string("*0\r\n");
-                    }
-                    else {
-                        resp = resp_storage_error(result.error());
-                    }
+                    resp = handle_lrange(storage, *lrange);
                 }
                 else if (auto* llen = std::get_if<LlenCommand>(&*cmd)) {
-                    auto result = list_len(storage, *llen);
-                    if (result) {
-                        resp = resp_integer(*result);
-                    }
-                    else if (result.error() == StorageError::NotFound) {
-                        resp = resp_integer(0);
-                    }
-                    else {
-                        resp = resp_storage_error(result.error());
-                    }
+                    resp = handle_llen(storage, *llen);
                 }
                 else if (auto* lpop = std::get_if<LpopCommand>(&*cmd)) {
-                    auto result = list_lpop(storage, *lpop);
-                    if (!result) {
-                        resp = resp_storage_error(result.error());
-                    }
-                    if (result->size() == 0) {
-                        resp = std::string("$-1\r\n");
-                    }
-                    else if (lpop->type == LpopType::Multiple) {
-                        std::vector<std::string> msgs;
-                        for (const std::string &arg : *result) {
-                            msgs.push_back(resp_bulk_string(arg));
-                        }
-                        resp = resp_array(msgs);
-                    }
-                    else if (lpop->type == LpopType::Single) {
-                        resp = resp_bulk_string(result->front());
-                    }
-                    else {
-                        std::unreachable();
-                    }
+                    resp = handle_lpop(storage, *lpop);
                 }
                 else if (auto* blp = std::get_if<BlpopCommand>(&*cmd)) {
                     resp = co_await handle_blpop(storage, waitings, *blp);

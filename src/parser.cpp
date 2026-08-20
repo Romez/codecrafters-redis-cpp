@@ -448,10 +448,13 @@ std::optional<Command> process_input(Parser& parser) {
                 if (auto res = consume_number(parser, *num_end)) {
                     parser.expected_str_len = *res;
                     parser.state = ParsingState::BulkString;
+                    continue;
                 } else {
                     return InvalidCommand{std::format("Failed to parse bulk string size: {}", res.error())};
                 }
             }
+
+            return std::nullopt;
         }
         else if (parser.state == ParsingState::BulkString) {
             size_t avail_size = parser.end - parser.pos;
@@ -476,10 +479,12 @@ std::optional<Command> process_input(Parser& parser) {
                     arr.reserve(*res);
                     parser.frames.push_back(std::move(arr));
                     parser.state = ParsingState::Init;
+                    continue;
                 } else {
                     return InvalidCommand{std::format("Failed to parse array size: {}", res.error())};
                 }
             }
+            return std::nullopt;
         }
     }
     return std::nullopt;
