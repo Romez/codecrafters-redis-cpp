@@ -50,20 +50,21 @@ std::string resp_storage_error(StorageError err) {
     std::unreachable();
 }
 
-void add_waiter(Waitings& waitings, Waiter& waiter, const Command& cmd) {
+std::expected<void, std::string> add_waiter(Waitings& waitings, Waiter& waiter, const Command& cmd) {
     if (const auto* blpop = std::get_if<BlpopCommand>(&cmd)) {
         waiter.cmd = *blpop;
         for (const auto& k : blpop->listKeys) {
             waitings[k].push_back(waiter.chan);
         }
         waiter.chan->reset();
+        return {};
     }
     else {
-        assert(false && "Unexpected blocking cmd");
+        return std::unexpected("Unexpected blocking cmd");
     }
 }
 
-void clear_waiter(Waitings& waitings, Waiter& waiter) {
+std::expected<void, std::string> clear_waiter(Waitings& waitings, Waiter& waiter) {
     if (const auto* blpop = std::get_if<BlpopCommand>(&waiter.cmd)) {
         for (const auto& k : blpop->listKeys) {
             std::erase(waitings[k], waiter.chan);
@@ -72,9 +73,10 @@ void clear_waiter(Waitings& waitings, Waiter& waiter) {
             }
         }
         waiter.chan->reset();
+        return {};
     }
     else {
-        assert(false && "Unexpected clear blocking cmd");
+        return std::unexpected("Unexpected clear blocking cmd");
     }
 }
 
@@ -133,13 +135,13 @@ std::string handle_rpush(Storage& storage, Waitings& waitings, const RpushComman
 
 std::string handle_lpush(Storage& storage, Waitings& waitings, const LpushCommand& cmd) {
     auto result = list_lpush(storage, cmd);
-    if (!result) {
+    if (result) {
+        handle_waitings(storage, waitings, cmd.listKey);
+        return resp_integer(*result);
+    }
+    else {
         return resp_storage_error(result.error());
     }
-
-    handle_waitings(storage, waitings, cmd.listKey);
-
-    return resp_integer(*result);
 }
 
 asio::awaitable<std::string> handle_blpop(
@@ -162,11 +164,15 @@ asio::awaitable<std::string> handle_blpop(
 
         // auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
 
-        add_waiter(waitings, waiter, cmd);
+        if (auto err = add_waiter(waitings, waiter, cmd); !err) {
+            co_return resp_simple_error(err.error());
+        }
 
         auto msg = co_await waiter.chan->async_receive(asio::use_awaitable);
 
-        clear_waiter(waitings, waiter);
+        if (auto err = clear_waiter(waitings, waiter); !err) {
+            co_return resp_simple_error(err.error());
+        }
 
         co_return msg;
     }
@@ -301,7 +307,9 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
             std::println("Read socket failure: {}", e.code().message());
         }
 
-        clear_waiter(waitings, waiter);
+        if (auto err = clear_waiter(waitings, waiter); !err) {
+            std::println("Error: {}", err.error());
+        }
     }
     catch (const std::exception& e) {
         std::println("Read failure: {}", e.what());
