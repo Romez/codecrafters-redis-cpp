@@ -80,6 +80,42 @@ struct TypeCommand {
     std::string key;
 };
 
+struct RespStreamMsSeqId {
+    uint64_t ms;
+    uint64_t seq;
+};
+
+using RespStreamMsId = uint64_t;
+
+enum class RespStreamSpecialId {
+    Auto,
+    Min,
+    Max
+};
+
+using RespStreamId = std::variant<
+    RespStreamMsSeqId,
+    RespStreamMsId,
+    RespStreamSpecialId
+>;
+
+struct XaddCommand {
+    std::string streamKey;
+    RespStreamId id;
+    std::vector<std::pair<std::string, std::string>> kvPairs;
+};
+
+struct XrangeCommand {
+    std::string streamKey;
+    RespStreamId start;
+    RespStreamId stop;
+};
+
+struct XreadCommand {
+    std::vector<std::pair<std::string, RespStreamId>> streams;
+    std::optional<long> timoutMs;
+};
+
 struct InvalidCommand {
     std::string msg;
 };
@@ -96,6 +132,9 @@ using Command = std::variant<
     LpopCommand,
     BlpopCommand,
     TypeCommand,
+    XaddCommand,
+    XrangeCommand,
+    XreadCommand,
     InvalidCommand
 >;
 

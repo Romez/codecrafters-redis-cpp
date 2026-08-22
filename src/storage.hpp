@@ -72,3 +72,5 @@ std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& 
 std::expected<std::vector<std::string>, StorageError> lpop(Storage& storage, const std::string& key, size_t len);
 
 std::expected<StorageItemType, StorageError> key_type(Storage& storage, const StorageKey& key);
+
+std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& cmd);

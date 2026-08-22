@@ -205,3 +205,97 @@ std::expected<StorageItemType, StorageError> key_type(Storage& storage, const St
         assert(false && "Unexpected storage type");
     }
 }
+
+EntryId get_last_stream_id(StorageStream& stream) {
+    uint64_t prevMs = 0;
+    uint64_t prevSeq = 0;
+
+    if (stream.size() > 0) {
+        StreamEntry& lastEntry = stream.back();
+        prevMs = lastEntry.id.first;
+        prevSeq = lastEntry.id.second;
+    }
+
+    return {prevMs, prevSeq};
+}
+
+std::expected<EntryId, StorageError> make_stream_key(StorageStream& stream, const RespStreamId& respId) {
+    if (auto* id = std::get_if<RespStreamMsSeqId>(&respId)) {
+        uint64_t nextMs = id->ms;
+        uint64_t nextSeq = id->seq;
+
+        if (nextMs == 0 && nextSeq == 0) {
+            return std::unexpected(StorageError::StreamKeySmallerThanZero);
+        }
+
+        auto [prevMs, prevSeq] = get_last_stream_id(stream);
+
+        if (nextMs < prevMs || (nextMs == prevMs && nextSeq <= prevSeq)) {
+            return std::unexpected(StorageError::StreamKeySmallerThanTop);
+        }
+
+        return EntryId{nextMs, nextSeq};
+    }
+
+    if (auto* id = std::get_if<RespStreamMsId>(&respId)) {
+        uint64_t nextMs = *id;
+
+        auto [prevMs, prevSeq] = get_last_stream_id(stream);
+
+        if (nextMs < prevMs) {
+            return std::unexpected(StorageError::StreamKeySmallerThanTop);
+        }
+
+        if (nextMs == prevMs) {
+            return EntryId{nextMs, prevSeq + 1};
+        }
+
+        return EntryId{nextMs, 0};
+    }
+
+    if (auto* id = std::get_if<RespStreamSpecialId>(&respId)) {
+        if (*id == RespStreamSpecialId::Auto) {
+            uint64_t nextMs = static_cast<uint64_t>(duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()
+            ).count());
+
+            if (stream.size() == 0) {
+                return EntryId{nextMs, 0};
+            }
+
+            auto [prevMs, prevSeq] = get_last_stream_id(stream);
+
+            uint64_t nextSeq = prevMs == nextMs ? prevSeq + 1 : 0;
+
+            return EntryId{nextMs, nextSeq};
+        }
+
+        assert(false && "Unhandled special key");
+    }
+
+    assert(false && "Unexpected resp stream id");
+}
+
+std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& cmd) {
+    auto streamValue = lookup_or_create_key_as<StorageStream>(storage, cmd.streamKey);
+    if (!streamValue) {
+        return std::unexpected(streamValue.error());
+    }
+
+    StorageStream& stream = **streamValue;
+
+    auto id = make_stream_key(stream, cmd.id);
+    if (!id) {
+        return std::unexpected(id.error());
+    }
+
+    StreamEntry entry = {.id = *id};
+
+    for (const auto& item : cmd.kvPairs) {
+        entry.values[item.first] = item.second;
+    }
+
+    stream.push_back(entry);
+
+    return *id;
+}

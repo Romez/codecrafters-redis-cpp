@@ -266,6 +266,20 @@ std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
     }
 }
 
+std::string handle_xadd(Storage& storage, const XaddCommand& cmd) {
+    auto result = xadd(storage, cmd);
+    if (result) {
+        auto id = *result;
+        std::string msg = std::format("{}-{}", id.first, id.second);
+        return resp_bulk_string(msg);
+
+        // exec_waiting(server, cmd.streamKey);
+    }
+    else {
+        return resp_storage_error(result.error());
+    }
+}
+
 asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socket socket) {
     Parser parser{};
 
@@ -321,6 +335,9 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                 }
                 else if (auto* type = std::get_if<TypeCommand>(&*cmd)) {
                     resp = handle_type(storage, *type);
+                }
+                else if (auto* xadd = std::get_if<XaddCommand>(&*cmd)) {
+                    resp = handle_xadd(storage, *xadd);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);

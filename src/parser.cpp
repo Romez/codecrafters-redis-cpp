@@ -380,6 +380,99 @@ Command build_type(std::span<RespMessage> args) {
     }
 }
 
+std::expected<RespStreamId, InvalidCommand> parse_stream_id(const std::string& value) {
+    if (value == "*") {
+        return RespStreamSpecialId::Auto;
+    }
+
+    if (value == "-") {
+        return RespStreamSpecialId::Min;
+    }
+
+    if (value == "+") {
+        return RespStreamSpecialId::Max;
+    }
+
+    size_t pos = value.find('-');
+
+    if (pos == std::string::npos) {
+        return std::unexpected(InvalidCommand{"invalid id format"});
+    }
+
+    std::string msValue = value.substr(0, pos);
+    std::string seqValue = value.substr(pos + 1);
+
+    uint64_t ms;
+    auto msResult = std::from_chars(msValue.data(), msValue.data() + msValue.size(), ms);
+    if (msResult.ec != std::errc{}) {
+        return std::unexpected(InvalidCommand{"invalid ms value"});
+    }
+
+    if (seqValue == "*") {
+        return RespStreamMsId{ ms };
+    }
+
+    uint64_t seq;
+    auto seqResult = std::from_chars(seqValue.data(), seqValue.data() + seqValue.size(), seq);
+    if (seqResult.ec != std::errc{}) {
+        return std::unexpected(InvalidCommand{"invalid seq value"});
+    }
+
+    return RespStreamMsSeqId{ ms, seq };
+}
+
+Command build_xadd(std::span<RespMessage> args) {
+    if (args.size() < 4 || (args.size() % 2) != 0) {
+        return InvalidCommand{"wrong number of arguments for 'xadd' command"};
+    }
+
+    std::string streamKey;
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        streamKey = *key;
+    }
+    else {
+        return InvalidCommand{"wrong 'xadd' key type"};
+    }
+
+    RespStreamId id;
+    if (auto* val = std::get_if<RespString>(&args[1])) {
+        auto result = parse_stream_id(*val);
+        if (!result) return result.error();
+        id = *result;
+    }
+    else {
+        return InvalidCommand{"wrong 'xadd' id type"};
+    }
+
+    std::vector<std::pair<std::string, std::string>> kvPairs;
+
+    for (size_t i = 2; i < args.size(); i += 2) {
+        std::string keyItem;
+        if (auto* key = std::get_if<RespString>(&args[i])) {
+            keyItem = *key;
+        }
+        else {
+            return InvalidCommand{"wrong 'xadd' key type"};
+        }
+
+        std::string valItem;
+        if (auto* val = std::get_if<RespString>(&args[i + 1])) {
+            valItem = *val;
+        }
+        else {
+            return InvalidCommand{"wrong 'xadd' val type"};
+        }
+
+        kvPairs.push_back({ keyItem, valItem });
+    }
+
+    return XaddCommand{
+        .streamKey = streamKey,
+        .id = id,
+        .kvPairs = kvPairs,
+    };
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -427,6 +520,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "lpop") return build_lpop(args);
             else if (cmd == "blpop") return build_blpop(args);
             else if (cmd == "type") return build_type(args);
+            else if (cmd == "xadd") return build_xadd(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
