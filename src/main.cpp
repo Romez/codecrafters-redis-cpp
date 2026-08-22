@@ -156,25 +156,34 @@ asio::awaitable<std::string> handle_blpop(
         co_return resp_array(std::array<std::string, 2>{key, value});
     }
     else if (result.error() == StorageError::NotFound) {
-        // auto ms = b->timeout ? *b->timeout : std::chrono::milliseconds(9999);
-        // auto io = co_await asio::this_coro::executor;
+        auto ms = cmd.timeout ? *cmd.timeout : std::chrono::milliseconds(9999);
+        auto io = co_await asio::this_coro::executor;
 
-        // auto timer = asio::steady_timer(io, ms);
-        // co_await timer.async_wait(asio::use_awaitable);
-
-        // auto ready_chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0);
+        auto timer = asio::steady_timer(io, ms);
 
         if (auto err = add_waiter(waitings, waiter, cmd); !err) {
             co_return resp_simple_error(err.error());
         }
 
-        auto msg = co_await waiter.chan->async_receive(asio::use_awaitable);
+        auto [order, timer_ec, channel_ec, channel_res] = co_await asio::experimental::make_parallel_group(
+            timer.async_wait(asio::deferred),
+            waiter.chan->async_receive(asio::deferred)
+        ).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
 
         if (auto err = clear_waiter(waitings, waiter); !err) {
             co_return resp_simple_error(err.error());
         }
 
-        co_return msg;
+        std::string msg;
+        if (order[0] == 0) { // timer
+            co_return "*-1\r\n";
+        }
+        else if (!channel_ec) {
+            co_return channel_res;
+        }
+        else {
+            co_return "*-1\r\n";
+        }
     }
     else {
         co_return resp_storage_error(result.error());
