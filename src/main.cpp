@@ -190,6 +190,29 @@ asio::awaitable<std::string> handle_blpop(
     }
 }
 
+std::string handle_type(Storage& storage, const TypeCommand& cmd) {
+    auto result = key_type(storage, cmd.key);
+    if (result) {
+        switch (*result) {
+        case StorageItemType::String:
+            return resp_simple_string("string");
+
+        case StorageItemType::List:
+            return resp_simple_string("list");
+
+        case StorageItemType::Stream:
+            return resp_simple_string("stream");
+        }
+    }
+
+    if (result.error() == StorageError::NotFound) {
+        return resp_simple_string("none");
+    }
+
+    return resp_storage_error(result.error());
+
+}
+
 std::string handle_lrange(Storage& storage, const LrangeCommand& cmd) {
     auto result = list_lrange(storage, cmd);
     if (result) {
@@ -296,12 +319,14 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                 else if (auto* blp = std::get_if<BlpopCommand>(&*cmd)) {
                     resp = co_await handle_blpop(storage, waitings, waiter, *blp);
                 }
+                else if (auto* type = std::get_if<TypeCommand>(&*cmd)) {
+                    resp = handle_type(storage, *type);
+                }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);
                 }
                 else {
-                    std::unreachable();
-                    exit(1);
+                    resp = resp_simple_error("Unsupported command");
                 }
 
                 co_await asio::async_write(socket, asio::buffer(resp), asio::use_awaitable);

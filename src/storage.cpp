@@ -185,3 +185,23 @@ std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& 
     }
     return std::unexpected(StorageError::NotFound);
 }
+
+std::expected<StorageItemType, StorageError> key_type(Storage& storage, const StorageKey& key) {
+    auto value = lookup_key(storage, key);
+    if (!value) {
+        return std::unexpected(StorageError::NotFound);
+    }
+
+    if (std::holds_alternative<StorageList>(*value)) {
+        return StorageItemType::List;
+    }
+    else if (std::holds_alternative<StorageString>(*value)) {
+        return StorageItemType::String;
+    }
+    else if (std::holds_alternative<StorageStream>(*value)) {
+        return StorageItemType::Stream;
+    }
+    else {
+        assert(false && "Unexpected storage type");
+    }
+}

@@ -114,7 +114,7 @@ Command build_echo(std::span<RespMessage> args) {
     if (auto* msg = std::get_if<RespString>(&args.front())) {
         return EchoCommand{*msg};
     }
-    
+
     return InvalidCommand{"Invalid resp command"};
 }
 
@@ -126,7 +126,7 @@ Command build_get(std::span<RespMessage> args) {
     if (auto* msg = std::get_if<RespString>(&args.front())) {
         return GetCommand{*msg};
     }
-    
+
     return InvalidCommand{"Invalid resp command"};
 }
 
@@ -148,7 +148,7 @@ Command build_set(std::span<RespMessage> args) {
 
     for(size_t i = 2; i < args.size();) {
         const auto& key = to_lower_case(std::get<RespString>(args[i]));
-        
+
         if (key == "ex" || key == "px") {
             if (i + 1 >= args.size()) {
                 return InvalidCommand{"ttl value missing"};
@@ -369,6 +369,17 @@ Command build_blpop(std::span<RespMessage> args) {
     return cmd;
 }
 
+Command build_type(std::span<RespMessage> args) {
+    if (args.size() != 1) return InvalidCommand{"Invalid 'type' args size"};
+
+    if (auto* s = std::get_if<RespString>(&args[0])) {
+        return TypeCommand{.key = *s};
+    }
+    else {
+        return InvalidCommand{"Invalid 'type' key type"};
+    }
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -415,6 +426,7 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "llen") return build_llen(args);
             else if (cmd == "lpop") return build_lpop(args);
             else if (cmd == "blpop") return build_blpop(args);
+            else if (cmd == "type") return build_type(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }

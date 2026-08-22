@@ -76,6 +76,10 @@ struct BlpopCommand {
     std::optional<std::chrono::milliseconds> timeout;
 };
 
+struct TypeCommand {
+    std::string key;
+};
+
 struct InvalidCommand {
     std::string msg;
 };
@@ -91,6 +95,7 @@ using Command = std::variant<
     LlenCommand,
     LpopCommand,
     BlpopCommand,
+    TypeCommand,
     InvalidCommand
 >;
 

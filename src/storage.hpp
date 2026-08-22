@@ -70,3 +70,5 @@ std::expected<std::vector<std::string>, StorageError> list_lpop(Storage& storage
 std::expected<std::pair<std::string, std::string>, StorageError> blpop(Storage& storage, const BlpopCommand& cmd);
 
 std::expected<std::vector<std::string>, StorageError> lpop(Storage& storage, const std::string& key, size_t len);
+
+std::expected<StorageItemType, StorageError> key_type(Storage& storage, const StorageKey& key);
