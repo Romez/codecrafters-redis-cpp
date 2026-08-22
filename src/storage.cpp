@@ -299,3 +299,83 @@ std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& c
 
     return *id;
 }
+
+size_t find_entry_index(StorageStream& stream, const EntryId& id) {
+    auto it = std::lower_bound(stream.begin(), stream.end(), StreamEntry{.id = id});
+    return it - stream.begin();
+}
+
+EntryId to_entry_id(const RespStreamId& respId) {
+    if (auto id = std::get_if<RespStreamMsSeqId>(&respId)) {
+        return {id->ms, id->seq};
+    }
+
+    if (auto id = std::get_if<RespStreamMsId>(&respId)) {
+        return {*id, 0};
+    }
+
+    if (auto id = std::get_if<RespStreamSpecialId>(&respId)) {
+        if (*id == RespStreamSpecialId::Min) {
+            return {0, 0};
+        }
+        if (*id == RespStreamSpecialId::Max) {
+            return {UINT64_MAX, UINT64_MAX};
+        }
+    }
+
+    assert(false && "Unhandled xrange id type");
+}
+
+std::expected<std::span<StreamEntry>, StorageError> xrange(Storage& storage, const XrangeCommand& cmd) {
+    auto streamValue = lookup_key_as<StorageStream>(storage, cmd.streamKey);
+    if (!streamValue) {
+        return std::unexpected(streamValue.error());
+    }
+
+    StorageStream& stream = **streamValue;
+
+    EntryId start = to_entry_id(cmd.start);
+    EntryId stop = to_entry_id(cmd.stop);
+
+    auto startIndex = find_entry_index(stream, start);
+
+    size_t len = 0;
+    for (size_t i = startIndex; i < stream.size(); ++i) {
+        if ((stream[i].id.first < stop.first) ||
+            (stream[i].id.first == stop.first && stream[i].id.second <= stop.second)) {
+            ++len;
+        }
+        else {
+            break;
+        }
+    }
+
+    return std::span<StreamEntry>(stream).subspan(startIndex, len);
+}
+
+size_t find_xread_index(std::span<StreamEntry> stream, const EntryId& id) {
+    auto it = std::upper_bound(stream.begin(), stream.end(), StreamEntry{.id = id});
+    return it - stream.begin();
+}
+
+std::expected<std::vector<std::pair<StorageKey, std::span<StreamEntry>>>, StorageError> xread(Storage& storage, const XreadCommand& cmd) {
+    std::vector<std::pair<StorageKey, std::span<StreamEntry>>> items;
+
+    for (auto& [streamKey, respId] : cmd.streams) {
+        auto stream = lookup_key_as<StorageStream>(storage, streamKey);
+        if (!stream) {
+            if (stream.error() == StorageError::NotFound) continue;
+            return std::unexpected(stream.error());
+        }
+
+        std::span<StreamEntry> entries = std::span<StreamEntry>(**stream);
+
+        size_t startIndex = find_xread_index(entries, to_entry_id(respId));
+        entries = entries.subspan(startIndex);
+        if (entries.size() > 0) {
+            items.push_back({streamKey, entries});
+        }
+    }
+
+    return items;
+}

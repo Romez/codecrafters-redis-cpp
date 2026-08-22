@@ -32,6 +32,42 @@ struct Waiter {
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
 
+std::string stream_entry_values_to_resp_array(const StreamEntry& entry) {
+    std::vector<std::string> values;
+    for (const auto &[k, v] : entry.values) {
+        values.push_back(resp_bulk_string(k));
+        values.push_back(resp_bulk_string(v));
+    }
+
+    return resp_array(values);
+}
+
+std::string format_stream_entries(std::span<const StreamEntry> entries) {
+    std::vector<std::string> items;
+
+    for (auto &entry : entries) {
+        std::string id = resp_bulk_string(std::format("{}-{}", entry.id.first, entry.id.second));
+        std::string values = stream_entry_values_to_resp_array(entry);
+
+        std::string item = resp_array(std::vector<std::string>{id, values});
+
+        items.push_back(item);
+    }
+
+    return resp_array(items);
+}
+
+std::string format_xread_items(const std::vector<std::pair<StorageKey, std::span<StreamEntry>>>& streams) {
+    std::vector<std::string> items;
+    for (const auto &[streamId, entries] : streams) {
+        auto id = resp_bulk_string(streamId);
+        auto msg = resp_array(std::vector<std::string>{id, format_stream_entries(entries)});
+        items.push_back(msg);
+    }
+
+    return resp_array(items);
+}
+
 std::string resp_storage_error(StorageError err) {
     switch (err) {
     case StorageError::NotFound:
@@ -280,6 +316,34 @@ std::string handle_xadd(Storage& storage, const XaddCommand& cmd) {
     }
 }
 
+std::string handle_xrange(Storage& storage, const XrangeCommand& cmd) {
+    auto result = xrange(storage, cmd);
+    if (!result) {
+        return resp_storage_error(result.error());
+    }
+    else {
+        return format_stream_entries(*result);
+    }
+}
+
+std::string handle_xread(Storage& storage, const XreadCommand& cmd) {
+    auto result = xread(storage, cmd);
+    if (!result) {
+        return resp_storage_error(result.error());
+    }
+    // else if (result->empty()) {
+    //     if (cmd.timoutMs) {
+    //         add_stream_waiting_op(server, client, cmd);
+    //     }
+    //     else {
+    //         send_client_message(server, client, emptyArray);
+    //     }
+    // }
+    else {
+        return format_xread_items(*result);
+    }
+}
+
 asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socket socket) {
     Parser parser{};
 
@@ -338,6 +402,12 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                 }
                 else if (auto* xadd = std::get_if<XaddCommand>(&*cmd)) {
                     resp = handle_xadd(storage, *xadd);
+                }
+                else if (auto* xrange = std::get_if<XrangeCommand>(&*cmd)) {
+                    resp = handle_xrange(storage, *xrange);
+                }
+                else if (auto* xread = std::get_if<XreadCommand>(&*cmd)) {
+                    resp = handle_xread(storage, *xread);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);

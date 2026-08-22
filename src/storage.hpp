@@ -74,3 +74,7 @@ std::expected<std::vector<std::string>, StorageError> lpop(Storage& storage, con
 std::expected<StorageItemType, StorageError> key_type(Storage& storage, const StorageKey& key);
 
 std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& cmd);
+
+std::expected<std::span<StreamEntry>, StorageError> xrange(Storage& storage, const XrangeCommand& cmd);
+
+std::expected<std::vector<std::pair<StorageKey, std::span<StreamEntry>>>, StorageError> xread(Storage& storage, const XreadCommand& cmd);

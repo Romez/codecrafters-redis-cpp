@@ -473,6 +473,124 @@ Command build_xadd(std::span<RespMessage> args) {
     };
 }
 
+std::optional<InvalidCommand> validate_xrange_args(const std::span<RespMessage>& args) {
+    if (args.size() != 3) {
+        return InvalidCommand{"wrong number of arguments for 'xrange' command"};
+    }
+
+    if (!std::holds_alternative<RespString>(args[0])) {
+        return InvalidCommand{"stream key should be a String type"};
+    }
+
+    if (!std::holds_alternative<RespString>(args[1]) || !std::holds_alternative<RespString>(args[2])) {
+        return InvalidCommand{"stream id should be a String type"};
+    }
+
+    return std::nullopt;
+}
+
+Command build_xrange(const std::span<RespMessage>& args) {
+    if (auto error = validate_xrange_args(args)) return *error;
+
+    std::string streamKey;
+    if (auto* key = std::get_if<RespString>(&args[0])) {
+        streamKey = *key;
+    }
+    else {
+        return InvalidCommand{"wrong 'xrange' key type"};
+    }
+
+    RespStreamId start;
+    if (auto* val = std::get_if<RespString>(&args[1])) {
+        auto result = parse_stream_id(*val);
+        if (!result) return result.error();
+        start = *result;
+    }
+    else {
+        return InvalidCommand{"wrong 'xrange' start type"};
+    }
+
+    RespStreamId stop;
+    if (auto* val = std::get_if<RespString>(&args[2])) {
+        auto result = parse_stream_id(*val);
+        if (!result) return result.error();
+        stop = *result;
+    }
+    else {
+        return InvalidCommand{"wrong 'xrange' stop type"};
+    }
+
+    return XrangeCommand{ streamKey, start, stop };
+}
+
+Command build_xread(const std::span<RespMessage>& args) {
+    if (args.size() < 3) {
+        return InvalidCommand{"wrong number of steams args"};
+    }
+
+    XreadCommand cmd{};
+
+    std::string key;
+    size_t index = 0;
+
+    if (auto* val = std::get_if<RespString>(&args[index])) key = *val;
+    else return InvalidCommand{"wrong 'xread' arg type"};
+
+    if (key == "block") {
+        if (auto* val = std::get_if<RespString>(&args[index+1])) {
+            long ms;
+            auto res = std::from_chars(val->data(), val->data() + val->size(), ms);
+            if (res.ec != std::errc{}) {
+                return InvalidCommand{"invalid ms value"};
+            }
+            if (ms < 0) {
+                return InvalidCommand{"invalid block timeout"};
+            }
+            cmd.timoutMs = ms;
+        }
+        else {
+            return InvalidCommand{"wrong 'xread' ms type"};
+        }
+
+        index += 2;
+        if (auto* val = std::get_if<RespString>(&args[index])) key = *val;
+        else return InvalidCommand{"wrong 'xread' arg type"};
+    }
+
+    if (key == "streams") {
+        std::span<const RespMessage> streams = std::span(args).subspan(index + 1);
+
+        if (streams.size() % 2 != 0) {
+            return InvalidCommand{"wrong number of steams args"};
+        }
+
+        size_t idsStart = streams.size() / 2;
+        for (size_t i = 0; i < idsStart; ++i) {
+            std::string streamKey;
+            if (auto* key = std::get_if<RespString>(&streams[i]))
+                streamKey = *key;
+            else
+                return InvalidCommand{"wrong 'xread' arg type"};
+
+            RespStreamId id;
+            if (auto* val = std::get_if<RespString>(&streams[i + idsStart])) {
+                auto result = parse_stream_id(*val);
+                if (!result) return result.error();
+                id = *result;
+            }
+            else {
+                return InvalidCommand{"wrong 'xread' arg type"};
+            }
+
+            cmd.streams.push_back(std::pair{ streamKey, id });
+        }
+
+        return cmd;
+    }
+
+    return InvalidCommand{"wrong xread command"};
+}
+
 // void print_reps(RespMessage& resp_msg) {
 //     if (auto* arr = std::get_if<RespArray>(&resp_msg)) {
 //         std::println("ARR: [");
@@ -521,6 +639,8 @@ Command resp_msg_to_cmd(RespMessage& resp_msg) {
             else if (cmd == "blpop") return build_blpop(args);
             else if (cmd == "type") return build_type(args);
             else if (cmd == "xadd") return build_xadd(args);
+            else if (cmd == "xrange") return build_xrange(args);
+            else if (cmd == "xread") return build_xread(args);
             else {
                 return InvalidCommand {std::format("Unknown command: |{}|", cmd)};
             }
