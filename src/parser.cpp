@@ -445,7 +445,6 @@ Command build_xadd(std::span<RespMessage> args) {
     }
 
     std::vector<std::pair<std::string, std::string>> kvPairs;
-
     for (size_t i = 2; i < args.size(); i += 2) {
         std::string keyItem;
         if (auto* key = std::get_if<RespString>(&args[i])) {

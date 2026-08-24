@@ -212,7 +212,7 @@ EntryId get_last_stream_id(StorageStream& stream) {
     }
 
     StreamEntry& lastEntry = stream.back();
-    return {lastEntry.id.first, lastEntry.id.second};
+    return lastEntry.id;
 }
 
 std::expected<EntryId, StorageError> make_next_entry_id(StorageStream& stream, const RespStreamId& respId) {
@@ -233,8 +233,8 @@ std::expected<EntryId, StorageError> make_next_entry_id(StorageStream& stream, c
         return EntryId{nextMs, nextSeq};
     }
 
-    if (auto* id = std::get_if<RespStreamMsId>(&respId)) {
-        uint64_t nextMs = *id;
+    if (auto* ms = std::get_if<RespStreamMsId>(&respId)) {
+        uint64_t nextMs = *ms;
 
         auto [prevMs, prevSeq] = get_last_stream_id(stream);
 
@@ -337,8 +337,8 @@ std::expected<std::span<StreamEntry>, StorageError> xrange(Storage& storage, con
 
     size_t len = 0;
     for (size_t i = startIndex; i < stream.size(); ++i) {
-        if ((stream[i].id.first < stop.first) ||
-            (stream[i].id.first == stop.first && stream[i].id.second <= stop.second)) {
+        if ((stream[i].id.ms < stop.ms) ||
+            (stream[i].id.ms == stop.ms && stream[i].id.seq <= stop.seq)) {
             ++len;
         }
         else {

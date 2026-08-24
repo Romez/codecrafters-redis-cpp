@@ -16,7 +16,10 @@ using StorageList = std::list<std::string>;
 
 using StorageKey = std::string;
 
-using EntryId = std::pair<uint64_t, uint64_t>;
+struct EntryId {
+    uint64_t ms;
+    uint64_t seq;
+};
 
 struct StreamEntry {
     EntryId id;
@@ -24,7 +27,9 @@ struct StreamEntry {
 };
 
 inline bool operator<(const StreamEntry& a, const StreamEntry& b) {
-    return a.id < b.id;
+    if (a.id.ms < b.id.ms) return true;
+    if (a.id.ms > b.id.ms) return false;
+    return a.id.seq < b.id.seq;
 }
 
 using StorageStream = std::vector<StreamEntry>;

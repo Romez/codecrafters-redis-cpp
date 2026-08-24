@@ -47,7 +47,7 @@ std::string format_stream_entries(std::span<const StreamEntry> entries) {
     std::vector<std::string> items;
 
     for (auto &entry : entries) {
-        std::string id = resp_bulk_string(std::format("{}-{}", entry.id.first, entry.id.second));
+        std::string id = resp_bulk_string(std::format("{}-{}", entry.id.ms, entry.id.seq));
         std::string values = stream_entry_values_to_resp_array(entry);
 
         std::string item = resp_array(std::vector<std::string>{id, values});
@@ -306,7 +306,7 @@ std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
 std::string handle_xadd(Storage& storage, const XaddCommand& cmd) {
     auto result = xadd(storage, cmd);
     if (result) {
-        std::string msg = std::format("{}-{}", result->first, result->second);
+        std::string msg = std::format("{}-{}", result->ms, result->seq);
         return resp_bulk_string(std::move(msg));
         // exec_waiting(server, cmd.streamKey);
     }
