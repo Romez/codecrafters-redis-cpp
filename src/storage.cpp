@@ -207,22 +207,15 @@ std::expected<StorageItemType, StorageError> key_type(Storage& storage, const St
 }
 
 EntryId get_last_stream_id(StorageStream& stream) {
-    uint64_t prevMs = 0;
-    uint64_t prevSeq = 0;
-
-    if (stream.size() > 0) {
-        StreamEntry& lastEntry = stream.back();
-        prevMs = lastEntry.id.first;
-        prevSeq = lastEntry.id.second;
+    if (stream.size() == 0) {
+        return {0, 0};
     }
 
-    return {prevMs, prevSeq};
+    StreamEntry& lastEntry = stream.back();
+    return {lastEntry.id.first, lastEntry.id.second};
 }
 
-std::expected<
-    EntryId,
-    StorageError
-> make_stream_key(StorageStream& stream, const RespStreamId& respId) {
+std::expected<EntryId, StorageError> make_next_entry_id(StorageStream& stream, const RespStreamId& respId) {
     if (auto* id = std::get_if<RespStreamMsSeqId>(&respId)) {
         uint64_t nextMs = id->ms;
         uint64_t nextSeq = id->seq;
@@ -287,7 +280,7 @@ std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& c
 
     StorageStream& stream = **streamValue;
 
-    auto id = make_stream_key(stream, cmd.id);
+    auto id = make_next_entry_id(stream, cmd.id);
     if (!id) {
         return std::unexpected(id.error());
     }
