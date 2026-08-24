@@ -19,6 +19,7 @@
 using asio::ip::tcp;
 using asio::experimental::promise;
 using asio::experimental::channel;
+
 using Waitings = std::unordered_map<
     StorageKey,
     std::list<std::shared_ptr<channel<void(std::error_code, std::string)>>>
@@ -76,10 +77,10 @@ std::string resp_storage_error(StorageError err) {
     case StorageError::WrongType:
         return resp_simple_error("WRONGTYPE Operation against a key holding the wrong kind of value");
 
-    case StorageError::StreamKeySmallerThanTop:
+    case StorageError::StreamKeyLess:
         return resp_simple_error("The ID specified in XADD is equal or smaller than the target stream top item");
 
-    case StorageError::StreamKeySmallerThanZero:
+    case StorageError::StreamKeyZero:
         return resp_simple_error("The ID specified in XADD must be greater than 0-0");
     }
 
@@ -305,10 +306,8 @@ std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
 std::string handle_xadd(Storage& storage, const XaddCommand& cmd) {
     auto result = xadd(storage, cmd);
     if (result) {
-        auto id = *result;
-        std::string msg = std::format("{}-{}", id.first, id.second);
-        return resp_bulk_string(msg);
-
+        std::string msg = std::format("{}-{}", result->first, result->second);
+        return resp_bulk_string(std::move(msg));
         // exec_waiting(server, cmd.streamKey);
     }
     else {

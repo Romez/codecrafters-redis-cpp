@@ -36,8 +36,8 @@ using StorageValue = std::variant<
 >;
 
 enum class StorageError {
-    StreamKeySmallerThanZero,
-    StreamKeySmallerThanTop,
+    StreamKeyZero,
+    StreamKeyLess,
     WrongType,
     NotFound,
 };

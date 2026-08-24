@@ -219,19 +219,22 @@ EntryId get_last_stream_id(StorageStream& stream) {
     return {prevMs, prevSeq};
 }
 
-std::expected<EntryId, StorageError> make_stream_key(StorageStream& stream, const RespStreamId& respId) {
+std::expected<
+    EntryId,
+    StorageError
+> make_stream_key(StorageStream& stream, const RespStreamId& respId) {
     if (auto* id = std::get_if<RespStreamMsSeqId>(&respId)) {
         uint64_t nextMs = id->ms;
         uint64_t nextSeq = id->seq;
 
         if (nextMs == 0 && nextSeq == 0) {
-            return std::unexpected(StorageError::StreamKeySmallerThanZero);
+            return std::unexpected(StorageError::StreamKeyZero);
         }
 
         auto [prevMs, prevSeq] = get_last_stream_id(stream);
 
         if (nextMs < prevMs || (nextMs == prevMs && nextSeq <= prevSeq)) {
-            return std::unexpected(StorageError::StreamKeySmallerThanTop);
+            return std::unexpected(StorageError::StreamKeyLess);
         }
 
         return EntryId{nextMs, nextSeq};
@@ -243,7 +246,7 @@ std::expected<EntryId, StorageError> make_stream_key(StorageStream& stream, cons
         auto [prevMs, prevSeq] = get_last_stream_id(stream);
 
         if (nextMs < prevMs) {
-            return std::unexpected(StorageError::StreamKeySmallerThanTop);
+            return std::unexpected(StorageError::StreamKeyLess);
         }
 
         if (nextMs == prevMs) {
