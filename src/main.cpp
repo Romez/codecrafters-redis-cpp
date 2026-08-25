@@ -20,15 +20,15 @@ using asio::ip::tcp;
 using asio::experimental::promise;
 using asio::experimental::channel;
 
+struct Waiter {
+    std::optional<Command> cmd;
+    channel<void(std::error_code, std::string)> chan;
+};
+
 using Waitings = std::unordered_map<
     StorageKey,
-    std::list<std::shared_ptr<channel<void(std::error_code, std::string)>>>
+    std::list<std::shared_ptr<Waiter>>
 >;
-
-struct Waiter {
-    Command cmd;
-    std::shared_ptr<channel<void(std::error_code, std::string)>> chan;
-};
 
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
@@ -87,51 +87,100 @@ std::string resp_storage_error(StorageError err) {
     std::unreachable();
 }
 
-std::expected<void, std::string> add_waiter(Waitings& waitings, Waiter& waiter, const Command& cmd) {
+std::expected<void, std::string> add_waiter(Waitings& waitings, std::shared_ptr<Waiter> waiter, const Command& cmd) {
+    assert(waiter->cmd == std::nullopt && "Expected command is empty");
+
     if (const auto* blpop = std::get_if<BlpopCommand>(&cmd)) {
-        waiter.cmd = *blpop;
         for (const auto& k : blpop->listKeys) {
-            waitings[k].push_back(waiter.chan);
+            waiter->cmd = cmd;
+            waiter->chan.reset();
+            waitings[k].push_back(waiter);
         }
-        waiter.chan->reset();
-        return {};
+    }
+    else if (const auto* xread = std::get_if<XreadCommand>(&cmd)) {
+        for (const auto& s : xread->streams) {
+            waiter->cmd = cmd;
+            waiter->chan.reset();
+            auto& k = s.first;
+            waitings[k].push_back(waiter);
+        }
     }
     else {
         return std::unexpected("Unexpected blocking cmd");
     }
+
+    return {};
 }
 
-std::expected<void, std::string> clear_waiter(Waitings& waitings, Waiter& waiter) {
-    if (const auto* blpop = std::get_if<BlpopCommand>(&waiter.cmd)) {
-        for (const auto& k : blpop->listKeys) {
-            std::erase(waitings[k], waiter.chan);
-            if (waitings.contains(k) && waitings[k].empty()) {
-                waitings.erase(k);
+std::expected<void, std::string> clear_waiter(Waitings& waitings, std::shared_ptr<Waiter> waiter) {
+    if (waiter->cmd) {
+        if (const auto* blpop = std::get_if<BlpopCommand>(&*waiter->cmd)) {
+            for (const auto& k : blpop->listKeys) {
+                std::erase(waitings[k], waiter);
+                if (waitings[k].empty()) {
+                    waitings.erase(k);
+                }
             }
+            waiter->cmd = std::nullopt;
+            return {};
         }
-        waiter.chan->reset();
-        return {};
-    }
-    else {
-        return std::unexpected("Unexpected clear blocking cmd");
-    }
-}
-
-void handle_waitings(Storage& storage, Waitings& waitings, const std::string list_key) {
-    while(waitings.contains(list_key) && storage.values.contains(list_key)) {
-        auto channel = waitings[list_key].front();
-        waitings[list_key].pop_back();
-
-        auto res = lpop(storage, list_key, 1);
-        if (res) {
-            std::string msg = resp_array(std::vector<std::string>{
-                resp_bulk_string(list_key),
-                resp_bulk_string(res->front())
-            });
-            channel->try_send(std::error_code{}, msg);
+        else if (const auto* xrd = std::get_if<XreadCommand>(&*waiter->cmd)) {
+            for (const auto& s : xrd->streams) {
+                const auto& k = s.first;
+                std::erase(waitings[k], waiter);
+                if (waitings[k].empty()) {
+                    waitings.erase(k);
+                }
+            }
+            waiter->cmd = std::nullopt;
+            return {};
         }
         else {
-            channel->try_send(std::error_code{}, resp_storage_error(res.error()));
+            return std::unexpected("Unexpected clear blocking cmd");
+        }
+    }
+    return {};
+}
+
+void handle_waitings(Storage& storage, Waitings& waitings, const StorageKey& key) {
+    while(waitings.contains(key) && storage.values.contains(key)) {
+        assert(!waitings[key].empty());
+
+        auto waiter = waitings[key].front();
+        waitings[key].pop_back();
+        if (waitings[key].empty()) {
+            waitings.erase(key);
+        }
+
+        assert(waiter->cmd != std::nullopt && "Expected blocking command");
+
+        if (std::holds_alternative<BlpopCommand>(*waiter->cmd)) {
+            auto res = lpop(storage, key, 1);
+            if (res) {
+                std::string msg = resp_array(std::vector<std::string>{
+                    resp_bulk_string(key),
+                    resp_bulk_string(res->front())
+                });
+                waiter->chan.try_send(std::error_code{}, msg);
+            }
+            else {
+                waiter->chan.try_send(std::error_code{}, resp_storage_error(res.error()));
+            }
+        }
+        else if (auto* xrd = std::get_if<XreadCommand>(&*waiter->cmd)) {
+            auto result = xread(storage, *xrd);
+            if (!result) {
+                waiter->chan.try_send(std::error_code{}, resp_storage_error(result.error()));
+            }
+            else if (result->empty()) {
+                waiter->chan.try_send(std::error_code{}, "*-1\r\n");
+            }
+            else {
+                waiter->chan.try_send(std::error_code{}, format_xread_items(*result));
+            }
+        }
+        else {
+            assert(false && "Unexpected wait operation");
         }
     }
 }
@@ -184,8 +233,9 @@ std::string handle_lpush(Storage& storage, Waitings& waitings, const LpushComman
 asio::awaitable<std::string> handle_blpop(
     Storage& storage,
     Waitings& waitings,
-    Waiter& waiter,
-    const BlpopCommand& cmd) {
+    std::shared_ptr<Waiter> waiter,
+    const BlpopCommand& cmd
+) {
     auto result = blpop(storage, cmd);
     if (result) {
         std::string key = resp_bulk_string(result->first);
@@ -204,7 +254,7 @@ asio::awaitable<std::string> handle_blpop(
 
         auto [order, timer_ec, channel_ec, channel_res] = co_await asio::experimental::make_parallel_group(
             timer.async_wait(asio::deferred),
-            waiter.chan->async_receive(asio::deferred)
+            waiter->chan.async_receive(asio::deferred)
         ).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
 
         if (auto err = clear_waiter(waitings, waiter); !err) {
@@ -302,12 +352,17 @@ std::string handle_lpop(Storage& storage, const LpopCommand& cmd) {
     }
 }
 
-std::string handle_xadd(Storage& storage, const XaddCommand& cmd) {
+std::string handle_xadd(
+    Storage& storage,
+    Waitings& waitings,
+    std::shared_ptr<Waiter> waiter,
+    const XaddCommand& cmd
+) {
     auto result = xadd(storage, cmd);
     if (result) {
         std::string msg = std::format("{}-{}", result->ms, result->seq);
+        handle_waitings(storage, waitings, cmd.streamKey);
         return resp_bulk_string(std::move(msg));
-        // exec_waiting(server, cmd.streamKey);
     }
     else {
         return resp_storage_error(result.error());
@@ -324,13 +379,44 @@ std::string handle_xrange(Storage& storage, const XrangeCommand& cmd) {
     }
 }
 
-asio::awaitable<std::string> handle_xread(Storage& storage, const XreadCommand& cmd) {
+asio::awaitable<std::string> handle_xread(
+    Storage& storage,
+    Waitings& waitings,
+    std::shared_ptr<Waiter> waiter,
+    const XreadCommand& cmd
+) {
     auto result = xread(storage, cmd);
     if (!result) {
         co_return resp_storage_error(result.error());
     }
     else if (result->empty()) {
         if (cmd.timeout) {
+            auto io = co_await asio::this_coro::executor;
+            auto timer = asio::steady_timer(io, *cmd.timeout);
+
+            if (auto err = add_waiter(waitings, waiter, cmd); !err) {
+                co_return resp_simple_error(err.error());
+            }
+
+            auto [order, timer_ec, channel_ec, channel_res] = co_await asio::experimental::make_parallel_group(
+                timer.async_wait(asio::deferred),
+                waiter->chan.async_receive(asio::deferred)
+            ).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+
+            if (auto err = clear_waiter(waitings, waiter); !err) {
+                co_return resp_simple_error(err.error());
+            }
+
+            if (order[0] == 0) { // timer
+                co_return "*-1\r\n";
+            }
+            else if (!channel_ec) {
+                co_return channel_res;
+            }
+            else {
+                co_return "*-1\r\n";
+            }
+
             assert(false && "Not implemented");
             // add_stream_waiting_op(server, client, cmd);
         }
@@ -348,9 +434,10 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
 
     auto io = co_await asio::this_coro::executor;
 
-    Waiter waiter{
-        .chan = std::make_shared<channel<void(std::error_code, std::string)>>(io, 0)
-    };
+    auto waiter = std::make_shared<Waiter>(
+        std::nullopt,
+        channel<void(std::error_code, std::string)>(io, 0)
+    );
 
     try {
         while(true) {
@@ -400,13 +487,13 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                     resp = handle_type(storage, *type);
                 }
                 else if (auto* xadd = std::get_if<XaddCommand>(&*cmd)) {
-                    resp = handle_xadd(storage, *xadd);
+                    resp = handle_xadd(storage, waitings, waiter, *xadd);
                 }
                 else if (auto* xrange = std::get_if<XrangeCommand>(&*cmd)) {
                     resp = handle_xrange(storage, *xrange);
                 }
                 else if (auto* xread = std::get_if<XreadCommand>(&*cmd)) {
-                    resp = co_await handle_xread(storage, *xread);
+                    resp = co_await handle_xread(storage, waitings, waiter, *xread);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);
