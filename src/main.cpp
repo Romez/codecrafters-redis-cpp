@@ -324,22 +324,22 @@ std::string handle_xrange(Storage& storage, const XrangeCommand& cmd) {
     }
 }
 
-std::string handle_xread(Storage& storage, const XreadCommand& cmd) {
+asio::awaitable<std::string> handle_xread(Storage& storage, const XreadCommand& cmd) {
     auto result = xread(storage, cmd);
     if (!result) {
-        return resp_storage_error(result.error());
+        co_return resp_storage_error(result.error());
     }
     else if (result->empty()) {
         if (cmd.timeout) {
-            assert(false && "Not implmented");
+            assert(false && "Not implemented");
             // add_stream_waiting_op(server, client, cmd);
         }
         else {
-            return "*-1\r\n";
+            co_return "*-1\r\n";
         }
     }
     else {
-        return format_xread_items(*result);
+        co_return format_xread_items(*result);
     }
 }
 
@@ -406,7 +406,7 @@ asio::awaitable<void> read_loop(Storage& storage, Waitings& waitings, tcp::socke
                     resp = handle_xrange(storage, *xrange);
                 }
                 else if (auto* xread = std::get_if<XreadCommand>(&*cmd)) {
-                    resp = handle_xread(storage, *xread);
+                    resp = co_await handle_xread(storage, *xread);
                 }
                 else if (auto* err = std::get_if<InvalidCommand>(&*cmd)) {
                     resp = resp_simple_error(err->msg);
