@@ -337,8 +337,7 @@ std::expected<std::span<StreamEntry>, StorageError> xrange(Storage& storage, con
 
     size_t len = 0;
     for (size_t i = startIndex; i < stream.size(); ++i) {
-        if ((stream[i].id.ms < stop.ms) ||
-            (stream[i].id.ms == stop.ms && stream[i].id.seq <= stop.seq)) {
+        if ((stream[i].id.ms < stop.ms) || (stream[i].id.ms == stop.ms && stream[i].id.seq <= stop.seq)) {
             ++len;
         }
         else {
@@ -354,7 +353,10 @@ size_t find_xread_index(std::span<StreamEntry> stream, const EntryId& id) {
     return it - stream.begin();
 }
 
-std::expected<std::vector<std::pair<StorageKey, std::span<StreamEntry>>>, StorageError> xread(Storage& storage, const XreadCommand& cmd) {
+std::expected<
+    std::vector<std::pair<StorageKey, std::span<StreamEntry>>>,
+    StorageError
+> xread(Storage& storage, const XreadCommand& cmd) {
     std::vector<std::pair<StorageKey, std::span<StreamEntry>>> items;
 
     for (auto& [streamKey, respId] : cmd.streams) {

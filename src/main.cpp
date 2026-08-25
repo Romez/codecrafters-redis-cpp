@@ -211,7 +211,6 @@ asio::awaitable<std::string> handle_blpop(
             co_return resp_simple_error(err.error());
         }
 
-        std::string msg;
         if (order[0] == 0) { // timer
             co_return "*-1\r\n";
         }
@@ -330,14 +329,15 @@ std::string handle_xread(Storage& storage, const XreadCommand& cmd) {
     if (!result) {
         return resp_storage_error(result.error());
     }
-    // else if (result->empty()) {
-    //     if (cmd.timoutMs) {
-    //         add_stream_waiting_op(server, client, cmd);
-    //     }
-    //     else {
-    //         send_client_message(server, client, emptyArray);
-    //     }
-    // }
+    else if (result->empty()) {
+        if (cmd.timeout) {
+            assert(false && "Not implmented");
+            // add_stream_waiting_op(server, client, cmd);
+        }
+        else {
+            return "*-1\r\n";
+        }
+    }
     else {
         return format_xread_items(*result);
     }

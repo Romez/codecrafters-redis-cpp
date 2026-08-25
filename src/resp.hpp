@@ -113,7 +113,7 @@ struct XrangeCommand {
 
 struct XreadCommand {
     std::vector<std::pair<std::string, RespStreamId>> streams;
-    std::optional<long> timoutMs;
+    std::optional<std::chrono::milliseconds> timeout;
 };
 
 struct InvalidCommand {

@@ -545,7 +545,7 @@ Command build_xread(const std::span<RespMessage>& args) {
             if (ms < 0) {
                 return InvalidCommand{"invalid block timeout"};
             }
-            cmd.timoutMs = ms;
+            cmd.timeout = std::chrono::milliseconds(ms);
         }
         else {
             return InvalidCommand{"wrong 'xread' ms type"};

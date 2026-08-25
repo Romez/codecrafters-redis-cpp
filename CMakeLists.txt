@@ -19,7 +19,7 @@ if(APPLE)
   target_compile_definitions(asio INTERFACE ASIO_STANDALONE)
 
   add_library(asio::asio ALIAS asio)
-else() 
+else()
   find_package(asio CONFIG REQUIRED)
 endif()
 
