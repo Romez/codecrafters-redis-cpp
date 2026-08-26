@@ -32,6 +32,7 @@ using Waitings = std::unordered_map<
 
 constexpr int port = 6379;
 constexpr size_t read_buf_size = 128;
+constexpr auto default_block_timeout = std::chrono::milliseconds(9999);
 
 std::string stream_entry_values_to_resp_array(const StreamEntry& entry) {
     std::vector<std::string> values;
@@ -243,7 +244,7 @@ asio::awaitable<std::string> handle_blpop(
         co_return resp_array(std::array<std::string, 2>{key, value});
     }
     else if (result.error() == StorageError::NotFound) {
-        auto ms = cmd.timeout ? *cmd.timeout : std::chrono::milliseconds(9999);
+        auto ms = cmd.timeout ? *cmd.timeout : default_block_timeout;
         auto io = co_await asio::this_coro::executor;
 
         auto timer = asio::steady_timer(io, ms);
@@ -392,7 +393,7 @@ asio::awaitable<std::string> handle_xread(
     else if (result->empty()) {
         if (cmd.timeout) {
             auto io = co_await asio::this_coro::executor;
-            auto timer = asio::steady_timer(io, *cmd.timeout);
+            auto timer = asio::steady_timer(io, cmd.timeout->count() == 0 ? default_block_timeout : *cmd.timeout);
 
             if (auto err = add_waiter(waitings, waiter, cmd); !err) {
                 co_return resp_simple_error(err.error());
