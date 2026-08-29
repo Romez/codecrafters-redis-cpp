@@ -384,41 +384,43 @@ std::expected<RespStreamId, InvalidCommand> parse_stream_id(const std::string& v
     if (value == "*") {
         return RespStreamSpecialId::Auto;
     }
-
-    if (value == "-") {
+    else if (value == "-") {
         return RespStreamSpecialId::Min;
     }
-
-    if (value == "+") {
+    else if (value == "+") {
         return RespStreamSpecialId::Max;
     }
-
-    size_t pos = value.find('-');
-
-    if (pos == std::string::npos) {
-        return std::unexpected(InvalidCommand{"invalid id format"});
+    else if (value == "$") {
+        return RespStreamSpecialId::Last;
     }
+    else {
+        size_t pos = value.find('-');
 
-    std::string msValue = value.substr(0, pos);
-    std::string seqValue = value.substr(pos + 1);
+        if (pos == std::string::npos) {
+            return std::unexpected(InvalidCommand{"invalid id format"});
+        }
 
-    uint64_t ms;
-    auto msResult = std::from_chars(msValue.data(), msValue.data() + msValue.size(), ms);
-    if (msResult.ec != std::errc{}) {
-        return std::unexpected(InvalidCommand{"invalid ms value"});
+        std::string msValue = value.substr(0, pos);
+        std::string seqValue = value.substr(pos + 1);
+
+        uint64_t ms;
+        auto msResult = std::from_chars(msValue.data(), msValue.data() + msValue.size(), ms);
+        if (msResult.ec != std::errc{}) {
+            return std::unexpected(InvalidCommand{"invalid ms value"});
+        }
+
+        if (seqValue == "*") {
+            return RespStreamMsId{ ms };
+        }
+
+        uint64_t seq;
+        auto seqResult = std::from_chars(seqValue.data(), seqValue.data() + seqValue.size(), seq);
+        if (seqResult.ec != std::errc{}) {
+            return std::unexpected(InvalidCommand{"invalid seq value"});
+        }
+
+        return RespStreamMsSeqId{ ms, seq };
     }
-
-    if (seqValue == "*") {
-        return RespStreamMsId{ ms };
-    }
-
-    uint64_t seq;
-    auto seqResult = std::from_chars(seqValue.data(), seqValue.data() + seqValue.size(), seq);
-    if (seqResult.ec != std::errc{}) {
-        return std::unexpected(InvalidCommand{"invalid seq value"});
-    }
-
-    return RespStreamMsSeqId{ ms, seq };
 }
 
 Command build_xadd(std::span<RespMessage> args) {

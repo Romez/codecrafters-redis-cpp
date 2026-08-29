@@ -90,7 +90,8 @@ using RespStreamMsId = uint64_t;
 enum class RespStreamSpecialId {
     Auto,
     Min,
-    Max
+    Max,
+    Last
 };
 
 using RespStreamId = std::variant<

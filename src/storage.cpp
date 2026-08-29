@@ -305,18 +305,17 @@ EntryId to_entry_id(const RespStreamId& respId) {
     if (auto id = std::get_if<RespStreamMsSeqId>(&respId)) {
         return {id->ms, id->seq};
     }
-
-    if (auto id = std::get_if<RespStreamMsId>(&respId)) {
+    else if (auto id = std::get_if<RespStreamMsId>(&respId)) {
         return {*id, 0};
     }
-
-    if (auto id = std::get_if<RespStreamSpecialId>(&respId)) {
+    else if (auto id = std::get_if<RespStreamSpecialId>(&respId)) {
         if (*id == RespStreamSpecialId::Min) {
             return {0, 0};
         }
-        if (*id == RespStreamSpecialId::Max) {
+        else if (*id == RespStreamSpecialId::Max) {
             return {UINT64_MAX, UINT64_MAX};
         }
+        assert(false && "Unexpected special stream id");
     }
 
     assert(false && "Unhandled xrange id type");
