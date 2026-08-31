@@ -83,3 +83,5 @@ std::expected<EntryId, StorageError> xadd(Storage& storage, const XaddCommand& c
 std::expected<std::span<StreamEntry>, StorageError> xrange(Storage& storage, const XrangeCommand& cmd);
 
 std::expected<std::vector<std::pair<StorageKey, std::span<StreamEntry>>>, StorageError> xread(Storage& storage, const XreadCommand& cmd);
+
+std::expected<EntryId, StorageError> get_last_stream_id(Storage& storage, const StorageKey& key);

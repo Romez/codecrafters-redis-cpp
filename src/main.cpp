@@ -384,7 +384,7 @@ asio::awaitable<std::string> handle_xread(
     Storage& storage,
     Waitings& waitings,
     std::shared_ptr<Waiter> waiter,
-    const XreadCommand& cmd
+    XreadCommand& cmd
 ) {
     auto result = xread(storage, cmd);
     if (!result) {
@@ -394,6 +394,18 @@ asio::awaitable<std::string> handle_xread(
         if (cmd.timeout) {
             auto io = co_await asio::this_coro::executor;
             auto timer = asio::steady_timer(io, cmd.timeout->count() == 0 ? default_block_timeout : *cmd.timeout);
+
+            for (size_t i = 0; i < cmd.streams.size(); ++i) {
+                if (auto* id = std::get_if<RespStreamSpecialId>(&cmd.streams[i].second)) {
+                    if (*id == RespStreamSpecialId::Last) {
+                        auto last_id = get_last_stream_id(storage, cmd.streams[i].first);
+                        if (!last_id) {
+                            co_return resp_storage_error(last_id.error());
+                        }
+                        cmd.streams[i].second = RespStreamMsSeqId{.ms = last_id->ms, .seq = last_id->seq};
+                    }
+                }
+            }
 
             if (auto err = add_waiter(waitings, waiter, cmd); !err) {
                 co_return resp_simple_error(err.error());

@@ -215,6 +215,15 @@ EntryId get_last_stream_id(StorageStream& stream) {
     return lastEntry.id;
 }
 
+std::expected<EntryId, StorageError> get_last_stream_id(Storage& storage, const StorageKey& key) {
+    auto streamValue = lookup_or_create_key_as<StorageStream>(storage, key);
+    if (!streamValue) {
+        return std::unexpected(streamValue.error());
+    }
+
+    return get_last_stream_id(**streamValue);
+}
+
 std::expected<EntryId, StorageError> make_next_entry_id(StorageStream& stream, const RespStreamId& respId) {
     if (auto* id = std::get_if<RespStreamMsSeqId>(&respId)) {
         uint64_t nextMs = id->ms;
@@ -313,6 +322,9 @@ EntryId to_entry_id(const RespStreamId& respId) {
             return {0, 0};
         }
         else if (*id == RespStreamSpecialId::Max) {
+            return {UINT64_MAX, UINT64_MAX};
+        }
+        else if (*id == RespStreamSpecialId::Last) {
             return {UINT64_MAX, UINT64_MAX};
         }
         assert(false && "Unexpected special stream id");
